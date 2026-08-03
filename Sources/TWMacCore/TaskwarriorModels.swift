@@ -44,11 +44,76 @@ public struct CreatedTask: Equatable, Sendable {
     }
 }
 
+public struct TaskEdits: Equatable, Sendable {
+    public var description: String
+    public var project: String
+    public var tags: [String]
+    public var due: String
+    public var priority: String
+
+    public init(description: String, project: String, tags: [String], due: String, priority: String) {
+        self.description = description
+        self.project = project
+        self.tags = tags
+        self.due = due
+        self.priority = priority
+    }
+}
+
+public struct BulkTaskEdits: Equatable, Sendable {
+    public var project: String?
+    public var tagsToAdd: [String]
+    public var tagsToRemove: [String]
+
+    public init(project: String? = nil, tagsToAdd: [String] = [], tagsToRemove: [String] = []) {
+        self.project = project
+        self.tagsToAdd = tagsToAdd
+        self.tagsToRemove = tagsToRemove
+    }
+
+    public var isEmpty: Bool {
+        project == nil && tagsToAdd.isEmpty && tagsToRemove.isEmpty
+    }
+}
+
+public enum TaskMutation: Equatable, Sendable {
+    case edit(UUID, TaskEdits)
+    case bulkEdit([UUID], BulkTaskEdits)
+    case complete(UUID)
+    case completeMany([UUID])
+    case start(UUID)
+    case startMany([UUID])
+    case stop(UUID)
+    case stopMany([UUID])
+    case delete(UUID)
+    case deleteMany([UUID])
+}
+
+public struct TaskChange: Equatable, Sendable {
+    public var before: TaskRecord?
+    public var after: TaskRecord?
+}
+
+public struct TaskMutationReceipt: Equatable, Sendable {
+    public var changes: [UUID: TaskChange]
+    public var feedback: String
+
+    public init(changes: [UUID: TaskChange], feedback: String) {
+        self.changes = changes
+        self.feedback = feedback
+    }
+}
+
 public enum TaskwarriorError: LocalizedError, Equatable {
     case executableNotFound(String)
     case unsupportedVersion(found: String, minimum: String)
     case processFailed(exitCode: Int32, message: String)
     case invalidCreationOutput(String)
+    case invalidExport(String)
+    case invalidFilter(String)
+    case taskNotFound(UUID)
+    case undoConflict
+    case undoFailed
 
     public var errorDescription: String? {
         switch self {
@@ -60,6 +125,16 @@ public enum TaskwarriorError: LocalizedError, Equatable {
             message
         case .invalidCreationOutput:
             "Taskwarrior created no recognizable task UUID."
+        case let .invalidExport(message):
+            "Taskwarrior returned invalid task data: \(message)"
+        case let .invalidFilter(message):
+            "Invalid filter: \(message)"
+        case let .taskNotFound(uuid):
+            "Task \(uuid) no longer exists."
+        case .undoConflict:
+            "Undo was refused because an affected task changed after this operation."
+        case .undoFailed:
+            "Taskwarrior could not restore the operation completely."
         }
     }
 }

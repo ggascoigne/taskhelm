@@ -5,29 +5,53 @@ import SwiftUI
 final class QuickCapturePanelController: NSObject, NSWindowDelegate {
     private let makeViewModel: () -> QuickCaptureViewModel
     private var panel: QuickCapturePanel?
+    private var hostingController: NSHostingController<AnyView>?
     private var viewModel: QuickCaptureViewModel?
 
     init(makeViewModel: @escaping () -> QuickCaptureViewModel) {
         self.makeViewModel = makeViewModel
+        super.init()
     }
 
-    func present(description: String) {
+    func prewarm() {
+        guard panel == nil else { return }
+
+        let model = makeViewModel()
+        model.prepare(description: "")
+        let panel = makePanel()
+        let hostingController = NSHostingController(
+            rootView: AnyView(QuickCaptureView(model: model).id(UUID()))
+        )
+        panel.contentViewController = hostingController
+        panel.setContentSize(NSSize(width: 660, height: 190))
+        panel.layoutIfNeeded()
+        hostingController.view.layoutSubtreeIfNeeded()
+        self.panel = panel
+        self.hostingController = hostingController
+    }
+
+    func present(description: String, onDescriptionFocused: @escaping () -> Void = {}) {
+        prewarm()
         let model = makeViewModel()
         model.prepare(description: description)
         viewModel = model
 
-        let panel = panel ?? makePanel()
+        guard let panel, let hostingController else { return }
         panel.onSubmit = { [weak model] in
             guard let model else { return }
             Task { await model.submit() }
         }
         panel.onCancel = { [weak self] in self?.dismiss() }
-        panel.contentViewController = NSHostingController(rootView: QuickCaptureView(model: model))
+        hostingController.rootView = AnyView(
+            QuickCaptureView(model: model)
+                .id(UUID())
+        )
         panel.setContentSize(NSSize(width: 660, height: 190))
         position(panel)
         panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()
-        self.panel = panel
+        focusDescription(in: panel, onFocused: onDescriptionFocused)
+        Task { await model.loadMetadata() }
     }
 
     func dismiss() {
@@ -62,6 +86,25 @@ final class QuickCapturePanelController: NSObject, NSWindowDelegate {
         return panel
     }
 
+    private func focusDescription(
+        in panel: QuickCapturePanel,
+        attempt: Int = 0,
+        onFocused: @escaping () -> Void
+    ) {
+        panel.contentView?.layoutSubtreeIfNeeded()
+        if let field = panel.contentView?.descendants(ofType: NSTextField.self).first(where: {
+            $0.placeholderString == "What needs to be done?"
+        }), panel.makeFirstResponder(field) {
+            onFocused()
+            return
+        }
+        guard attempt < 10 else { return }
+        DispatchQueue.main.async { [weak self, weak panel] in
+            guard let self, let panel else { return }
+            self.focusDescription(in: panel, attempt: attempt + 1, onFocused: onFocused)
+        }
+    }
+
     private func position(_ panel: NSPanel) {
         let mouseLocation = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { NSMouseInRect(mouseLocation, $0.frame, false) } ?? NSScreen.main
@@ -72,6 +115,15 @@ final class QuickCapturePanelController: NSObject, NSWindowDelegate {
             y: visibleFrame.minY + visibleFrame.height * 0.68
         )
         panel.setFrameOrigin(origin)
+    }
+}
+
+private extension NSView {
+    func descendants<T: NSView>(ofType type: T.Type) -> [T] {
+        subviews.flatMap { view -> [T] in
+            let match = view as? T
+            return [match].compactMap { $0 } + view.descendants(ofType: type)
+        }
     }
 }
 

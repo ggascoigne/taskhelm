@@ -52,6 +52,76 @@ struct TaskwarriorClientTests {
             try await client.validateInstallation()
         }
     }
+
+    @Test func exportsNextTasksWithConfiguredAndClientFilters() async throws {
+        let uuid = UUID()
+        let runner = RecordingRunner(results: [
+            ProcessResult(
+                exitCode: 0,
+                standardOutput: "( status:pending or status:waiting ) -WAITING\n",
+                standardError: ""
+            ),
+            ProcessResult(
+                exitCode: 0,
+                standardOutput: """
+                    [{"id":7,"uuid":"\(uuid.uuidString)","description":"Ship browser","status":"pending","urgency":12.4,"custom.score":9}]
+                    """,
+                standardError: ""
+            ),
+        ])
+        let client = TaskwarriorClient(
+            environment: TaskwarriorEnvironment(executableURL: URL(fileURLWithPath: "/opt/homebrew/bin/task")),
+            runner: runner
+        )
+
+        let tasks = try await client.tasks(
+            matching: TaskQuery(view: .next, project: "TW Mac", tag: "focus", rawFilter: "priority:H or due:today")
+        )
+
+        #expect(tasks.first?.uuid == uuid)
+        #expect(tasks.first?.description == "Ship browser")
+        #expect(tasks.first?.urgency == 12.4)
+        #expect(tasks.first?.fields["custom.score"] == .number(9))
+        #expect(runner.invocations[1].arguments == [
+            "rc.json.array=on",
+            "(",
+            "status:pending",
+            "or",
+            "status:waiting",
+            ")",
+            "-WAITING",
+            "-PARENT",
+            "project:TW Mac",
+            "+focus",
+            "priority:H",
+            "or",
+            "due:today",
+            "export",
+        ])
+    }
+
+    @Test func preservesQuotedFilterTermsWithoutUsingAShell() throws {
+        #expect(try TaskwarriorClient<RecordingRunner>.filterArguments(in: "project:'Big Work' +next") == [
+            "project:Big Work",
+            "+next",
+        ])
+        #expect(throws: TaskwarriorError.invalidFilter("unterminated quote")) {
+            try TaskwarriorClient<RecordingRunner>.filterArguments(in: "project:'Big Work")
+        }
+    }
+
+    @Test func readsPriorityOrderIncludingTheConfiguredBlankPosition() async throws {
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, standardOutput: "H,M,,L\n", standardError: "")
+        ])
+        let client = TaskwarriorClient(
+            environment: TaskwarriorEnvironment(executableURL: URL(fileURLWithPath: "/opt/homebrew/bin/task")),
+            runner: runner
+        )
+
+        #expect(try await client.priorityValues() == ["H", "M", "", "L"])
+        #expect(runner.invocations.first?.arguments == ["_get", "rc.uda.priority.values"])
+    }
 }
 
 private final class RecordingRunner: ProcessRunning, @unchecked Sendable {

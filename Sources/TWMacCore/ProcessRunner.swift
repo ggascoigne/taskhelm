@@ -14,12 +14,52 @@ public struct ProcessResult: Equatable, Sendable {
 
 public protocol ProcessRunning: Sendable {
     func run(executableURL: URL, arguments: [String], environment: [String: String]) throws -> ProcessResult
+    func run(
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        standardInput: Data
+    ) throws -> ProcessResult
+}
+
+public extension ProcessRunning {
+    func run(
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        standardInput: Data
+    ) throws -> ProcessResult {
+        try run(executableURL: executableURL, arguments: arguments, environment: environment)
+    }
 }
 
 public struct FoundationProcessRunner: ProcessRunning {
     public init() {}
 
     public func run(executableURL: URL, arguments: [String], environment: [String: String]) throws -> ProcessResult {
+        try execute(executableURL: executableURL, arguments: arguments, environment: environment, standardInput: nil)
+    }
+
+    public func run(
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        standardInput: Data
+    ) throws -> ProcessResult {
+        try execute(
+            executableURL: executableURL,
+            arguments: arguments,
+            environment: environment,
+            standardInput: standardInput
+        )
+    }
+
+    private func execute(
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        standardInput: Data?
+    ) throws -> ProcessResult {
         let process = Process()
         let standardOutput = Pipe()
         let standardError = Pipe()
@@ -29,11 +69,18 @@ public struct FoundationProcessRunner: ProcessRunning {
         process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, configured in configured }
         process.standardOutput = standardOutput
         process.standardError = standardError
+        let input = standardInput.map { _ in Pipe() }
+        process.standardInput = input
 
         do {
             try process.run()
         } catch {
             throw TaskwarriorError.executableNotFound(executableURL.path)
+        }
+
+        if let standardInput, let input {
+            input.fileHandleForWriting.write(standardInput)
+            try? input.fileHandleForWriting.close()
         }
 
         let outputData = LockedData()

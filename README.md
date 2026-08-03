@@ -2,7 +2,7 @@
 
 A native macOS companion for Taskwarrior. Taskwarrior remains authoritative for task data, configuration, contexts, hooks, urgency, recurrence, and synchronization.
 
-The current implementation is the first internal milestone: menu-bar lifecycle and Quick Capture.
+The current implementation includes Quick Capture and a native Task Browser with editing, bulk actions, and conflict-safe Undo.
 
 ## Requirements
 
@@ -40,12 +40,31 @@ Implemented:
 - Isolated Taskwarrior integration tests
 - Configurable global shortcut
 - Optional Accessibility-based selected-text capture with a 100 ms timeout
+- Prewarmed Quick Capture panel with local signpost latency instrumentation
 - Taskwarrior installation validation and optional config path
 - Launch at Login control
+- First-run onboarding with automatic Taskwarrior validation
+- Persistent three-region Task Browser window
+- Next, Waiting, and Completed views with Project, Tag, and raw Taskwarrior filtering
+- Urgency-first task table with remembered client-local sorting
+- Full-fidelity read-only inspector, manual refresh, focus refresh, and five-second visible refresh
+- Inspector editing for Description, Project, Tags, Due, and Priority
+- Project and Tag autocomplete plus configured Priority choices while editing
+- Complete, Start/Stop, and confirmed Delete actions
+- Multi-selection Start, Stop, Complete, and confirmed Delete actions
+- Bulk set Project and add/remove Tags with one-level Undo
+- Selection-driven toolbar, Task menu, secondary-click commands, and double-click Edit
+- Conflict-safe, operation-scoped one-level Undo through Taskwarrior import
 
-Next:
+The agreed Quick Capture and Task Browser milestones are implemented.
 
-- First-run onboarding polish and latency instrumentation
-- Task Browser milestone
+Quick Capture emits local `QuickCaptureLatency` signposts for `SelectionLookup` and
+`InvocationToFocusedPanel`. They can be inspected with Instruments’ Points of Interest template;
+each includes elapsed milliseconds and whether the 100 ms selection and 150 ms focus budgets were met.
+No measurements leave the Mac.
+
+Browser refresh re-reads local Taskwarrior data after client mutations, when the window regains focus,
+on request, and approximately every five seconds while visible. Synchronization with a remote Taskwarrior
+replica remains externally managed and is not triggered by TW Mac.
 
 See [the product brief](docs/product-brief.md) for the agreed scope and [the domain glossary](CONTEXT.md) for canonical language.

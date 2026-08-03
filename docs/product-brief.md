@@ -26,7 +26,7 @@ The app is initially built for Guy's workflow, with enough configuration and err
 - Support one configured Taskwarrior environment in the initial product: one executable path and one optional config path.
 - Auto-detect sensible defaults and allow both paths to be changed in Settings.
 - Blank client metadata fields defer to active Context, `.taskrc` defaults, and hooks.
-- Taskwarrior Sync is an explicit Browser command; Quick Capture never waits for sync and no automatic background sync occurs.
+- Synchronization remains external to the Mac client initially. Browser refreshes re-read local Taskwarrior data but do not invoke `task sync`; Quick Capture never waits for sync.
 
 ## Internal milestone 1: Quick Capture
 
@@ -92,7 +92,7 @@ Quick Capture is independently useful and is implemented before Task Browser.
 - A raw Taskwarrior filter bar provides live expert filtering; Taskwarrior evaluates the expression.
 - Saved custom filters are deferred.
 - Default order is Urgency descending, not literal Priority.
-- Table sorting is client-local, temporary, remembered between Browser sessions, and resettable to Urgency.
+- Table sorting is client-local and remembered between Browser sessions; clicking the Urgency column restores Urgency ordering.
 - Refresh after client mutations, whenever the Browser regains focus, manually on request, and approximately every five seconds while visible.
 - External changes are always re-read through Taskwarrior rather than detected by interpreting its database.
 
@@ -156,6 +156,7 @@ The app does not install Taskwarrior, create a beginner workflow, or provide a T
 - Public branding, notarized releases, and Homebrew distribution.
 - Intel Mac and older macOS support.
 - Automatic synchronization.
+- An explicit in-app Taskwarrior Sync command.
 
 ## References
 

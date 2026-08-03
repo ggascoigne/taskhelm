@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import TWMac
 
@@ -68,6 +69,25 @@ struct SelectedTextReaderTests {
         )
 
         #expect(selection == "available after activation")
+    }
+
+    @Test func selectionLookupReturnsAtTheConfiguredDeadline() async {
+        let start = ContinuousClock.now
+
+        let selection = await SelectedTextReader.firstSelection(
+            timeoutNanoseconds: QuickCaptureLatencyBudget.selectionTimeoutNanoseconds
+        ) {
+            Thread.sleep(forTimeInterval: 0.5)
+            return "too late"
+        }
+
+        let elapsed = start.duration(to: .now)
+        #expect(selection == nil)
+        #expect(elapsed >= .milliseconds(60), "Selection lookup returned prematurely after \(elapsed)")
+        #expect(
+            elapsed <= QuickCaptureLatencyBudget.selectionLookup,
+            "Selection lookup exceeded its 100 ms budget: \(elapsed)"
+        )
     }
 
 }

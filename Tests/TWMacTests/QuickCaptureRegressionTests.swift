@@ -139,6 +139,92 @@ struct QuickCaptureRegressionTests {
         #expect(elapsed < .milliseconds(250), "Priority update took \(elapsed)")
     }
 
+    @Test func latencyBudgetsUseTheAgreedBoundaries() {
+        #expect(
+            QuickCaptureLatencyMeasurement(
+                selectionLookup: .milliseconds(100),
+                invocationToFocusedPanel: .milliseconds(150)
+            ).isWithinBudget
+        )
+        #expect(
+            !QuickCaptureLatencyMeasurement(
+                selectionLookup: .milliseconds(101),
+                invocationToFocusedPanel: .milliseconds(150)
+            ).isWithinBudget
+        )
+        #expect(
+            !QuickCaptureLatencyMeasurement(
+                selectionLookup: .milliseconds(100),
+                invocationToFocusedPanel: .milliseconds(151)
+            ).isWithinBudget
+        )
+    }
+
+    @Test func nativePanelFocusesDescriptionWithinBudget() async throws {
+        let controller = QuickCapturePanelController {
+            QuickCaptureViewModel(client: RecordingTaskwarriorClient(), onCancel: {}, onCreated: {})
+        }
+        defer { controller.dismiss() }
+        controller.prewarm()
+        var measurement: QuickCaptureLatencyMeasurement?
+        let trace = QuickCaptureLatency.begin()
+
+        controller.present(description: "Measure focus") {
+            measurement = QuickCaptureLatency.finish(trace, selectionLookup: nil)
+        }
+        await waitUntil { measurement != nil }
+
+        let result = try #require(measurement)
+        #expect(
+            result.invocationToFocusedPanel <= QuickCaptureLatencyBudget.invocationToFocusedPanel,
+            "Native panel focus took \(result.invocationToFocusedPanel)"
+        )
+    }
+
+    @Test func fullCapturePathStaysWithinBudgetWhenSelectionTimesOut() async throws {
+        let controller = QuickCapturePanelController {
+            QuickCaptureViewModel(client: RecordingTaskwarriorClient(), onCancel: {}, onCreated: {})
+        }
+        defer { controller.dismiss() }
+        controller.prewarm()
+        var measurement: QuickCaptureLatencyMeasurement?
+        let trace = QuickCaptureLatency.begin()
+
+        let selection = await SelectedTextReader.firstSelection(
+            timeoutNanoseconds: QuickCaptureLatencyBudget.selectionTimeoutNanoseconds
+        ) {
+            Thread.sleep(forTimeInterval: 0.5)
+            return "too late"
+        }
+        let selectionDuration = QuickCaptureLatency.recordSelectionLookup(for: trace)
+        controller.present(description: selection ?? "") {
+            measurement = QuickCaptureLatency.finish(trace, selectionLookup: selectionDuration)
+        }
+        await waitUntil { measurement != nil }
+
+        let result = try #require(measurement)
+        #expect(selection == nil)
+        #expect(result.isWithinBudget, "Full capture path exceeded its budget: \(result)")
+    }
+
+    @Test func panelPrewarmingIsDeferredAndIdempotent() {
+        var viewModelCount = 0
+        let controller = QuickCapturePanelController {
+            viewModelCount += 1
+            return QuickCaptureViewModel(
+                client: RecordingTaskwarriorClient(),
+                onCancel: {},
+                onCreated: {}
+            )
+        }
+        defer { controller.dismiss() }
+
+        #expect(viewModelCount == 0)
+        controller.prewarm()
+        controller.prewarm()
+        #expect(viewModelCount == 1)
+    }
+
     private func mount(_ model: QuickCaptureViewModel) -> (panel: QuickCapturePanel, host: NSHostingView<QuickCaptureView>) {
         _ = NSApplication.shared
         let host = NSHostingView(rootView: QuickCaptureView(model: model))

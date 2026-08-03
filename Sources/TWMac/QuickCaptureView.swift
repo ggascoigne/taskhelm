@@ -2,7 +2,6 @@ import SwiftUI
 
 struct QuickCaptureView: View {
     @ObservedObject var model: QuickCaptureViewModel
-    @FocusState private var descriptionIsFocused: Bool
     @State private var calendarDate = Date()
 
     var body: some View {
@@ -14,7 +13,6 @@ struct QuickCaptureView: View {
                 TextField("What needs to be done?", text: $model.draft.description)
                     .textFieldStyle(.plain)
                     .font(.title3)
-                    .focused($descriptionIsFocused)
                     .onSubmit(submit)
 
                 if model.isSubmitting {
@@ -65,10 +63,6 @@ struct QuickCaptureView: View {
         }
         .padding(18)
         .frame(width: 660)
-        .task {
-            descriptionIsFocused = true
-            await model.loadMetadata()
-        }
         .onExitCommand(perform: model.cancel)
     }
 

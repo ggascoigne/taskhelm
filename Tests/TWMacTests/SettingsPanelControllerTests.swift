@@ -33,4 +33,30 @@ struct SettingsPanelControllerTests {
         #expect(abs(panel.frame.midX - visibleFrame.midX) < 0.5)
         #expect(abs(panel.frame.midY - visibleFrame.midY) < 0.5)
     }
+
+    @Test func onboardingUsesFloatingTransientUtilityPanel() {
+        let panel = OnboardingPanelController.makePanel()
+        defer { panel.close() }
+
+        #expect(panel.isFloatingPanel)
+        #expect(panel.level == .floating)
+        #expect(panel.styleMask.contains(.utilityWindow))
+        #expect(panel.collectionBehavior.contains(.transient))
+        #expect(panel.contentLayoutRect.size.width == OnboardingPanelController.contentSize.width)
+        #expect(panel.contentLayoutRect.size.height == OnboardingPanelController.contentSize.height)
+    }
+
+    @Test func onboardingCompletionIsPersisted() {
+        let suite = "OnboardingTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults)
+
+        #expect(settings.needsOnboarding)
+        settings.completeOnboarding()
+
+        #expect(!settings.needsOnboarding)
+        #expect(!AppSettings(defaults: defaults).needsOnboarding)
+    }
 }

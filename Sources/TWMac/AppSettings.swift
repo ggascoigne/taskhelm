@@ -8,6 +8,7 @@ final class AppSettings: ObservableObject {
         static let taskRCPath = "taskRCPath"
         static let capturesSelectedText = "capturesSelectedText"
         static let quickCaptureShortcut = "quickCaptureShortcut"
+        static let hasCompletedOnboarding = "hasCompletedOnboarding"
     }
 
     @Published var taskExecutablePath: String {
@@ -32,6 +33,10 @@ final class AppSettings: ObservableObject {
 
     private let defaults: UserDefaults
 
+    var needsOnboarding: Bool {
+        !defaults.bool(forKey: Key.hasCompletedOnboarding)
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         taskExecutablePath = defaults.string(forKey: Key.taskExecutablePath) ?? Self.detectTaskExecutable()
@@ -49,6 +54,10 @@ final class AppSettings: ObservableObject {
                 ? nil
                 : URL(fileURLWithPath: NSString(string: taskRCPath).expandingTildeInPath)
         )
+    }
+
+    func completeOnboarding() {
+        defaults.set(true, forKey: Key.hasCompletedOnboarding)
     }
 
     private static func detectTaskExecutable() -> String {

@@ -6,6 +6,25 @@ public protocol TaskwarriorServing {
     func metadata() async throws -> TaskwarriorMetadata
 }
 
+public protocol TaskBrowsing: Sendable {
+    func tasks(matching query: TaskQuery) async throws -> [TaskRecord]
+    func priorityValues() async throws -> [String]
+    func metadata() async throws -> TaskwarriorMetadata
+}
+
+public protocol TaskMutating: Sendable {
+    func perform(_ mutation: TaskMutation) async throws -> TaskMutationReceipt
+    func undo(_ receipt: TaskMutationReceipt) async throws
+}
+
+public extension TaskBrowsing {
+    func priorityValues() async throws -> [String] { ["H", "M", "L", ""] }
+
+    func metadata() async throws -> TaskwarriorMetadata {
+        TaskwarriorMetadata(projects: [], tags: [], priorities: try await priorityValues(), context: nil)
+    }
+}
+
 public struct TaskwarriorClient<Runner: ProcessRunning>: Sendable {
     public static var minimumVersion: String { "3.4.0" }
 
@@ -81,6 +100,98 @@ public struct TaskwarriorClient<Runner: ProcessRunning>: Sendable {
         )
     }
 
+    public func priorityValues() async throws -> [String] {
+        let result = try await run(arguments: ["_get", "rc.uda.priority.values"])
+        try requireSuccess(result)
+        var values = result.standardOutput
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .components(separatedBy: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        if !values.contains("") { values.append("") }
+        return values
+    }
+
+    public func tasks(matching query: TaskQuery) async throws -> [TaskRecord] {
+        var filter: [String]
+        switch query.view {
+        case .next:
+            let result = try await run(arguments: ["_get", "rc.report.next.filter"])
+            try requireSuccess(result)
+            filter = try Self.filterArguments(in: result.standardOutput)
+        case .waiting:
+            filter = ["status:waiting"]
+        case .completed:
+            filter = ["status:completed"]
+        }
+
+        filter.append("-PARENT")
+        if let project = query.project, !project.isEmpty {
+            filter.append("project:\(project)")
+        }
+        if let tag = query.tag, !tag.isEmpty {
+            filter.append("+\(tag)")
+        }
+        filter.append(contentsOf: try Self.filterArguments(in: query.rawFilter))
+
+        let result = try await run(arguments: ["rc.json.array=on"] + filter + ["export"])
+        try requireSuccess(result)
+        do {
+            return try JSONDecoder().decode([TaskRecord].self, from: Data(result.standardOutput.utf8))
+        } catch {
+            throw TaskwarriorError.invalidExport(error.localizedDescription)
+        }
+    }
+
+    public func perform(_ mutation: TaskMutation) async throws -> TaskMutationReceipt {
+        let before = try await allTasks()
+        let arguments = try mutationArguments(mutation, tasks: before)
+        let result = try await run(arguments: arguments)
+        try requireSuccess(result)
+        let after = try await allTasks()
+        let changes = Self.changes(from: before, to: after)
+        return TaskMutationReceipt(
+            changes: changes,
+            feedback: [result.standardOutput, result.standardError]
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+        )
+    }
+
+    public func undo(_ receipt: TaskMutationReceipt) async throws {
+        let current = Dictionary(uniqueKeysWithValues: try await allTasks().map { ($0.uuid, $0) })
+        for (uuid, change) in receipt.changes {
+            guard Self.sameStoredState(current[uuid], change.after) else { throw TaskwarriorError.undoConflict }
+        }
+
+        let recordsToRestore = receipt.changes.values.compactMap { change -> [String: JSONValue]? in
+            guard let before = change.before else { return nil }
+            var fields = before.storedFields
+            fields["modified"] = .string(Self.nextImportTimestamp())
+            return fields
+        }
+        if !recordsToRestore.isEmpty {
+            let data = try JSONEncoder().encode(recordsToRestore)
+            let result = try await run(
+                arguments: ["rc.context=", "rc.confirmation=off", "rc.recurrence.confirmation=no", "import", "-"],
+                standardInput: data
+            )
+            try requireSuccess(result)
+        }
+
+        for (uuid, change) in receipt.changes where change.before == nil && change.after != nil {
+            if current[uuid]?.status != "deleted" {
+                try requireSuccess(try await run(arguments: mutationPrefix + [uuid.uuidString.lowercased(), "delete"]))
+            }
+            try requireSuccess(try await run(arguments: mutationPrefix + [uuid.uuidString.lowercased(), "purge"]))
+        }
+
+        let restored = Dictionary(uniqueKeysWithValues: try await allTasks().map { ($0.uuid, $0) })
+        guard receipt.changes.allSatisfy({ Self.sameRestoredState(restored[$0.key], $0.value.before) }) else {
+            throw TaskwarriorError.undoFailed
+        }
+    }
+
     private func run(arguments: [String], includeTaskEnvironment: Bool = true) async throws -> ProcessResult {
         let executableURL = environment.executableURL
         let processEnvironment = includeTaskEnvironment ? taskEnvironment : [:]
@@ -89,6 +200,104 @@ public struct TaskwarriorClient<Runner: ProcessRunning>: Sendable {
         return try await Task.detached(priority: .userInitiated) {
             try runner.run(executableURL: executableURL, arguments: arguments, environment: processEnvironment)
         }.value
+    }
+
+    private func run(arguments: [String], standardInput: Data) async throws -> ProcessResult {
+        let executableURL = environment.executableURL
+        let processEnvironment = taskEnvironment
+        let runner = runner
+        return try await Task.detached(priority: .userInitiated) {
+            try runner.run(
+                executableURL: executableURL,
+                arguments: arguments,
+                environment: processEnvironment,
+                standardInput: standardInput
+            )
+        }.value
+    }
+
+    private var mutationPrefix: [String] {
+        ["rc.context=", "rc.confirmation=off", "rc.bulk=0", "rc.recurrence.confirmation=no"]
+    }
+
+    private func allTasks() async throws -> [TaskRecord] {
+        let result = try await run(arguments: ["rc.context=", "rc.json.array=on", "export"])
+        try requireSuccess(result)
+        do {
+            return try JSONDecoder().decode([TaskRecord].self, from: Data(result.standardOutput.utf8))
+        } catch {
+            throw TaskwarriorError.invalidExport(error.localizedDescription)
+        }
+    }
+
+    private func mutationArguments(_ mutation: TaskMutation, tasks: [TaskRecord]) throws -> [String] {
+        let uuids: [UUID]
+        let command: [String]
+        switch mutation {
+        case let .edit(value, edits):
+            uuids = [value]
+            guard let task = tasks.first(where: { $0.uuid == value }) else {
+                throw TaskwarriorError.taskNotFound(value)
+            }
+            var modifications = ["project:\(edits.project)", "due:\(edits.due)", "priority:\(edits.priority)"]
+            modifications += task.tags.filter { !edits.tags.contains($0) }.map { "-\($0)" }
+            modifications += edits.tags.filter { !task.tags.contains($0) }.map { "+\($0)" }
+            command = ["modify"] + modifications + ["--", edits.description]
+        case let .bulkEdit(values, edits):
+            uuids = values
+            var modifications: [String] = []
+            if let project = edits.project {
+                modifications.append("project:\(project)")
+            }
+            modifications += edits.tagsToAdd.map { "+\($0)" }
+            modifications += edits.tagsToRemove.map { "-\($0)" }
+            guard !modifications.isEmpty else {
+                throw TaskwarriorError.processFailed(exitCode: -1, message: "No bulk changes to apply.")
+            }
+            command = ["modify"] + modifications
+        case let .complete(value): uuids = [value]; command = ["done"]
+        case let .completeMany(values): uuids = values; command = ["done"]
+        case let .start(value): uuids = [value]; command = ["start"]
+        case let .startMany(values): uuids = values; command = ["start"]
+        case let .stop(value): uuids = [value]; command = ["stop"]
+        case let .stopMany(values): uuids = values; command = ["stop"]
+        case let .delete(value): uuids = [value]; command = ["delete"]
+        case let .deleteMany(values): uuids = values; command = ["delete"]
+        }
+        guard !uuids.isEmpty else {
+            throw TaskwarriorError.processFailed(exitCode: -1, message: "No tasks selected.")
+        }
+        for uuid in uuids where !tasks.contains(where: { $0.uuid == uuid }) {
+            throw TaskwarriorError.taskNotFound(uuid)
+        }
+        let filters = uuids.map { $0.uuidString.lowercased() }.sorted()
+        return mutationPrefix + filters + command
+    }
+
+    private static func changes(from before: [TaskRecord], to after: [TaskRecord]) -> [UUID: TaskChange] {
+        let beforeByID = Dictionary(uniqueKeysWithValues: before.map { ($0.uuid, $0) })
+        let afterByID = Dictionary(uniqueKeysWithValues: after.map { ($0.uuid, $0) })
+        return Set(beforeByID.keys).union(afterByID.keys).reduce(into: [:]) { result, uuid in
+            let old = beforeByID[uuid]
+            let new = afterByID[uuid]
+            if !sameStoredState(old, new) { result[uuid] = TaskChange(before: old, after: new) }
+        }
+    }
+
+    private static func sameStoredState(_ lhs: TaskRecord?, _ rhs: TaskRecord?) -> Bool {
+        lhs?.storedFields == rhs?.storedFields
+    }
+
+    private static func sameRestoredState(_ lhs: TaskRecord?, _ rhs: TaskRecord?) -> Bool {
+        lhs?.storedFields.filter { $0.key != "modified" } == rhs?.storedFields.filter { $0.key != "modified" }
+    }
+
+    private static func nextImportTimestamp() -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
+        return formatter.string(from: Date().addingTimeInterval(1))
     }
 
     private var taskEnvironment: [String: String] {
@@ -128,9 +337,47 @@ public struct TaskwarriorClient<Runner: ProcessRunning>: Sendable {
             .filter { !$0.isEmpty }
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
+
+    static func filterArguments(in text: String) throws -> [String] {
+        var arguments: [String] = []
+        var current = ""
+        var quote: Character?
+        var isEscaping = false
+
+        for character in text.trimmingCharacters(in: .whitespacesAndNewlines) {
+            if isEscaping {
+                current.append(character)
+                isEscaping = false
+            } else if character == "\\" {
+                isEscaping = true
+            } else if let activeQuote = quote {
+                if character == activeQuote {
+                    quote = nil
+                } else {
+                    current.append(character)
+                }
+            } else if character == "\"" || character == "'" {
+                quote = character
+            } else if character.isWhitespace {
+                if !current.isEmpty {
+                    arguments.append(current)
+                    current = ""
+                }
+            } else {
+                current.append(character)
+            }
+        }
+
+        guard quote == nil else { throw TaskwarriorError.invalidFilter("unterminated quote") }
+        if isEscaping { current.append("\\") }
+        if !current.isEmpty { arguments.append(current) }
+        return arguments
+    }
 }
 
 extension TaskwarriorClient: TaskwarriorServing {}
+extension TaskwarriorClient: TaskBrowsing {}
+extension TaskwarriorClient: TaskMutating {}
 
 private extension String {
     var nilIfEmpty: String? { isEmpty ? nil : self }

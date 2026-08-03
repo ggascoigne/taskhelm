@@ -35,21 +35,30 @@ struct SelectedTextReader {
     }
 
     @MainActor
-    func selectedText(timeoutNanoseconds: UInt64 = 100_000_000) async -> String? {
+    func selectedText(
+        timeoutNanoseconds: UInt64 = QuickCaptureLatencyBudget.selectionTimeoutNanoseconds
+    ) async -> String? {
         guard AXIsProcessTrusted() else { return nil }
         let processIdentifier = NSWorkspace.shared.frontmostApplication?.processIdentifier
 
-        return await withCheckedContinuation { continuation in
+        return await Self.firstSelection(timeoutNanoseconds: timeoutNanoseconds) {
+            Self.readSelectedText(
+                processIdentifier: processIdentifier,
+                prepareSource: Self.enableAccessibility,
+                readSelection: Self.readFocusedSelection
+            )
+        }
+    }
+
+    static func firstSelection(
+        timeoutNanoseconds: UInt64,
+        readSelection: @escaping @Sendable () -> String?
+    ) async -> String? {
+        await withCheckedContinuation { continuation in
             let completion = SelectionCompletion(continuation: continuation)
 
             Task.detached(priority: .userInitiated) {
-                completion.resume(
-                    with: Self.readSelectedText(
-                        processIdentifier: processIdentifier,
-                        prepareSource: Self.enableAccessibility,
-                        readSelection: Self.readFocusedSelection
-                    )
-                )
+                completion.resume(with: readSelection())
             }
             Task.detached {
                 try? await Task.sleep(nanoseconds: timeoutNanoseconds)
