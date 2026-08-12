@@ -40,10 +40,15 @@ struct OnboardingView: View {
                 .padding(6)
             }
 
-            GroupBox("Quick Capture") {
+            GroupBox("Shortcuts & Quick Capture") {
                 VStack(alignment: .leading, spacing: 10) {
-                    LabeledContent("Global shortcut") {
+                    LabeledContent("New Task") {
                         ShortcutRecorderView(shortcut: $settings.quickCaptureShortcut)
+                            .frame(width: 130, height: 28)
+                    }
+
+                    LabeledContent("Task Browser") {
+                        ShortcutRecorderView(shortcut: $settings.taskBrowserShortcut)
                             .frame(width: 130, height: 28)
                     }
 

@@ -79,6 +79,9 @@ public struct BulkTaskEdits: Equatable, Sendable {
 public enum TaskMutation: Equatable, Sendable {
     case edit(UUID, TaskEdits)
     case bulkEdit([UUID], BulkTaskEdits)
+    case annotate(UUID, String)
+    case replaceAnnotation(UUID, TaskAnnotation, String)
+    case deleteAnnotation(UUID, TaskAnnotation)
     case complete(UUID)
     case completeMany([UUID])
     case start(UUID)
@@ -112,6 +115,7 @@ public enum TaskwarriorError: LocalizedError, Equatable {
     case invalidExport(String)
     case invalidFilter(String)
     case taskNotFound(UUID)
+    case annotationNotFound(UUID)
     case undoConflict
     case undoFailed
 
@@ -131,6 +135,8 @@ public enum TaskwarriorError: LocalizedError, Equatable {
             "Invalid filter: \(message)"
         case let .taskNotFound(uuid):
             "Task \(uuid) no longer exists."
+        case .annotationNotFound:
+            "The note no longer exists or changed in another Taskwarrior client."
         case .undoConflict:
             "Undo was refused because an affected task changed after this operation."
         case .undoFailed:

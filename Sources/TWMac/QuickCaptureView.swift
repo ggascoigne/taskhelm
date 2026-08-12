@@ -2,7 +2,6 @@ import SwiftUI
 
 struct QuickCaptureView: View {
     @ObservedObject var model: QuickCaptureViewModel
-    @State private var calendarDate = Date()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -37,15 +36,7 @@ struct QuickCaptureView: View {
                 PriorityPicker(selection: $model.draft.priority, priorities: model.metadata.priorities)
                 .frame(width: 90)
 
-                HStack(spacing: 3) {
-                    metadataField("Due", text: $model.draft.due, width: 100)
-                    DatePicker("", selection: $calendarDate, displayedComponents: .date)
-                        .labelsHidden()
-                        .datePickerStyle(.field)
-                        .onChange(of: calendarDate) { _, newValue in
-                            model.draft.due = newValue.formatted(.iso8601.year().month().day())
-                        }
-                }
+                DueDateField(due: $model.draft.due, textFieldWidth: 100, onSubmit: submit)
             }
 
             if let context = model.metadata.context {
@@ -64,13 +55,6 @@ struct QuickCaptureView: View {
         .padding(18)
         .frame(width: 660)
         .onExitCommand(perform: model.cancel)
-    }
-
-    private func metadataField(_ prompt: String, text: Binding<String>, width: CGFloat) -> some View {
-        TextField(prompt, text: text)
-            .textFieldStyle(.roundedBorder)
-            .frame(width: width)
-            .onSubmit(submit)
     }
 
     private func submit() {

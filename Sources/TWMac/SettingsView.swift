@@ -33,9 +33,14 @@ struct SettingsView: View {
                 }
             }
 
-            Section("Quick Capture") {
-                LabeledContent("Global shortcut") {
+            Section("Global Shortcuts") {
+                LabeledContent("New Task") {
                     ShortcutRecorderView(shortcut: $settings.quickCaptureShortcut)
+                        .frame(width: 120, height: 28)
+                }
+
+                LabeledContent("Task Browser") {
+                    ShortcutRecorderView(shortcut: $settings.taskBrowserShortcut)
                         .frame(width: 120, height: 28)
                 }
 
@@ -45,6 +50,9 @@ struct SettingsView: View {
                         .foregroundStyle(.red)
                 }
 
+            }
+
+            Section("Quick Capture") {
                 Toggle("Seed Description from selected text", isOn: $settings.capturesSelectedText)
                     .onChange(of: settings.capturesSelectedText) { _, enabled in
                         if enabled { requestAccessibilityPermission() }

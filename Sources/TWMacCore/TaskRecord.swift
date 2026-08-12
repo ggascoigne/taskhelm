@@ -50,6 +50,18 @@ public enum JSONValue: Codable, Equatable, Sendable {
     }
 }
 
+public struct TaskAnnotation: Equatable, Identifiable, Sendable {
+    public let entry: String
+    public let description: String
+
+    public init(entry: String, description: String) {
+        self.entry = entry
+        self.description = description
+    }
+
+    public var id: String { entry }
+}
+
 public struct TaskRecord: Codable, Equatable, Identifiable, Sendable {
     public let fields: [String: JSONValue]
 
@@ -78,10 +90,18 @@ public struct TaskRecord: Codable, Equatable, Identifiable, Sendable {
     public var status: String { string("status") }
     public var isActive: Bool { fields["start"] != nil && fields["end"] == nil }
     public var isRecurring: Bool { fields["recur"] != nil || status == "recurring" }
-    public var isAnnotated: Bool {
-        guard case let .array(values) = fields["annotations"] else { return false }
-        return !values.isEmpty
+    public var annotations: [TaskAnnotation] {
+        guard case let .array(values) = fields["annotations"] else { return [] }
+        return values.compactMap { value in
+            guard case let .object(fields) = value,
+                  case let .string(entry) = fields["entry"],
+                  case let .string(description) = fields["description"] else { return nil }
+            return TaskAnnotation(entry: entry, description: description)
+        }
+        .sorted { $0.entry < $1.entry }
     }
+    public var annotationCount: Int { annotations.count }
+    public var isAnnotated: Bool { !annotations.isEmpty }
     public var isBlocked: Bool {
         guard case let .array(values) = fields["depends"] else { return false }
         return !values.isEmpty

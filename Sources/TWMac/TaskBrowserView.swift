@@ -4,6 +4,7 @@ import TWMacCore
 
 struct TaskBrowserRootView: View {
     @StateObject private var model: TaskBrowserViewModel
+    @Environment(\.dismissWindow) private var dismissWindow
 
     init(settings: AppSettings) {
         _model = StateObject(
@@ -42,23 +43,29 @@ struct TaskBrowserRootView: View {
 
     var body: some View {
         TaskBrowserView(model: model)
+            .onExitCommand {
+                dismissWindow(id: "task-browser")
+            }
     }
 }
 
 struct TaskBrowserView: View {
     @ObservedObject var model: TaskBrowserViewModel
     @State private var confirmsDelete = false
+    @State private var resizeStart: CGFloat?
+
+    private let dividerSize: CGFloat = 9
+    private let minimumListWidth: CGFloat = 480
+    private let minimumInspectorWidth: CGFloat = 260
+    private let minimumListHeight: CGFloat = 260
+    private let minimumInspectorHeight: CGFloat = 220
 
     var body: some View {
         NavigationSplitView {
             BrowserSidebar(model: model)
                 .navigationSplitViewColumnWidth(min: 170, ideal: 210, max: 280)
-        } content: {
-            taskList
-                .navigationSplitViewColumnWidth(min: 560, ideal: 760)
         } detail: {
-            TaskInspector(model: model)
-                .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 440)
+            browserContent
         }
         .navigationTitle(model.view.title)
         .toolbar { browserToolbar }
@@ -83,6 +90,61 @@ struct TaskBrowserView: View {
             Button("Delete", role: .destructive) { Task { await model.deleteSelected() } }
         } message: {
             Text(deleteMessage)
+        }
+    }
+
+    private var browserContent: some View {
+        GeometryReader { geometry in
+            switch model.detailsPosition {
+            case .right:
+                rightDetailsLayout(availableSize: geometry.size)
+            case .bottom:
+                bottomDetailsLayout(availableSize: geometry.size)
+            }
+        }
+    }
+
+    private func rightDetailsLayout(availableSize: CGSize) -> some View {
+        let inspectorWidth = min(
+            max(CGFloat(model.rightDetailsWidth), minimumInspectorWidth),
+            max(minimumInspectorWidth, availableSize.width - minimumListWidth - dividerSize)
+        )
+        return HStack(spacing: 0) {
+            taskList
+                .frame(width: availableSize.width - inspectorWidth - dividerSize)
+            BrowserResizeHandle(axis: .vertical) { translation in
+                if resizeStart == nil { resizeStart = inspectorWidth }
+                let requestedWidth = (resizeStart ?? inspectorWidth) - translation
+                let maximumWidth = availableSize.width - minimumListWidth - dividerSize
+                model.setRightDetailsWidth(Double(min(max(requestedWidth, minimumInspectorWidth), maximumWidth)))
+            } onEnded: {
+                resizeStart = nil
+            }
+            .frame(width: dividerSize)
+            TaskInspector(model: model)
+                .frame(width: inspectorWidth)
+        }
+    }
+
+    private func bottomDetailsLayout(availableSize: CGSize) -> some View {
+        let inspectorHeight = min(
+            max(CGFloat(model.bottomDetailsHeight), minimumInspectorHeight),
+            max(minimumInspectorHeight, availableSize.height - minimumListHeight - dividerSize)
+        )
+        return VStack(spacing: 0) {
+            taskList
+                .frame(height: availableSize.height - inspectorHeight - dividerSize)
+            BrowserResizeHandle(axis: .horizontal) { translation in
+                if resizeStart == nil { resizeStart = inspectorHeight }
+                let requestedHeight = (resizeStart ?? inspectorHeight) - translation
+                let maximumHeight = availableSize.height - minimumListHeight - dividerSize
+                model.setBottomDetailsHeight(Double(min(max(requestedHeight, minimumInspectorHeight), maximumHeight)))
+            } onEnded: {
+                resizeStart = nil
+            }
+            .frame(height: dividerSize)
+            TaskInspector(model: model)
+                .frame(height: inspectorHeight)
         }
     }
 
@@ -140,7 +202,9 @@ struct TaskBrowserView: View {
                         .width(min: 80, ideal: 120)
                     TableColumn("Tags", value: \.tagsText) { task in Text(task.tagsText).lineLimit(1) }
                         .width(min: 80, ideal: 130)
-                    TableColumn("Due", value: \.due) { task in Text(task.due).lineLimit(1) }
+                    TableColumn("Due", value: \.due) { task in
+                        Text(browserDueDisplayValue(task.due)).lineLimit(1)
+                    }
                         .width(min: 90, ideal: 120)
                     TableColumn("Priority", value: \.priority) { task in Text(task.priority).lineLimit(1) }
                         .width(65)
@@ -230,6 +294,14 @@ struct TaskBrowserView: View {
             .disabled(!model.canUndo || model.isEditing)
 
             Button {
+                model.setDetailsPosition(alternateDetailsPosition)
+            } label: {
+                toolbarLabel("Layout", systemImage: alternateDetailsPositionIcon)
+            }
+            .help("Move details pane to the \(alternateDetailsPosition.rawValue)")
+            .accessibilityLabel("Move Details to \(alternateDetailsPosition.rawValue.capitalized)")
+
+            Button {
                 Task { await model.refresh() }
             } label: {
                 toolbarLabel("Refresh", systemImage: "arrow.clockwise")
@@ -241,6 +313,17 @@ struct TaskBrowserView: View {
     private func toolbarLabel(_ title: String, systemImage: String) -> some View {
         Label(title, systemImage: systemImage)
             .labelStyle(.titleAndIcon)
+    }
+
+    private var alternateDetailsPosition: BrowserDetailsPosition {
+        model.detailsPosition == .right ? .bottom : .right
+    }
+
+    private var alternateDetailsPositionIcon: String {
+        switch alternateDetailsPosition {
+        case .right: "sidebar.right"
+        case .bottom: "rectangle.bottomhalf.inset.filled"
+        }
     }
 
     @ViewBuilder
@@ -315,6 +398,40 @@ struct TaskBrowserView: View {
     }
 }
 
+private struct BrowserResizeHandle: View {
+    let axis: Axis
+    let onChanged: (CGFloat) -> Void
+    let onEnded: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.clear
+            Rectangle()
+                .fill(Color(nsColor: .separatorColor))
+                .frame(
+                    width: axis == .vertical ? 1 : nil,
+                    height: axis == .horizontal ? 1 : nil
+                )
+        }
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    onChanged(axis == .vertical ? value.translation.width : value.translation.height)
+                }
+                .onEnded { _ in onEnded() }
+        )
+        .onHover { isHovering in
+            guard isHovering else {
+                NSCursor.arrow.set()
+                return
+            }
+            (axis == .vertical ? NSCursor.resizeLeftRight : NSCursor.resizeUpDown).set()
+        }
+        .accessibilityLabel("Resize Details Pane")
+    }
+}
+
 private struct BrowserSidebar: View {
     @ObservedObject var model: TaskBrowserViewModel
 
@@ -330,7 +447,11 @@ private struct BrowserSidebar: View {
 
             if !model.projects.isEmpty {
                 Section("Projects") {
-                    sidebarButton("All Projects", icon: "tray", selected: model.project == nil) {
+                    sidebarButton(
+                        "All Projects",
+                        icon: "tray",
+                        selected: model.project == nil && model.tag == nil
+                    ) {
                         Task { await model.selectProject(nil) }
                     }
                     ForEach(model.projects, id: \.self) { project in
@@ -343,7 +464,11 @@ private struct BrowserSidebar: View {
 
             if !model.tags.isEmpty {
                 Section("Tags") {
-                    sidebarButton("All Tags", icon: "tag", selected: model.tag == nil) {
+                    sidebarButton(
+                        "All Tags",
+                        icon: "tag",
+                        selected: model.project == nil && model.tag == nil
+                    ) {
                         Task { await model.selectTag(nil) }
                     }
                     ForEach(model.tags, id: \.self) { tag in
@@ -389,7 +514,15 @@ private struct TaskStateIndicators: View {
             if task.isActive { Image(systemName: "play.fill").help("Active") }
             if task.isBlocked { Image(systemName: "lock.fill").help("Blocked") }
             if task.isRecurring { Image(systemName: "repeat").help("Recurring") }
-            if task.isAnnotated { Image(systemName: "text.bubble").help("Annotated") }
+            if task.isAnnotated {
+                HStack(spacing: 1) {
+                    Image(systemName: "text.bubble")
+                    Text(task.annotationCount.formatted())
+                        .monospacedDigit()
+                }
+                .help(task.annotationCount == 1 ? "1 note" : "\(task.annotationCount) notes")
+                .accessibilityLabel(task.annotationCount == 1 ? "1 note" : "\(task.annotationCount) notes")
+            }
         }
         .font(.caption2)
         .foregroundStyle(.secondary)
@@ -410,22 +543,21 @@ private struct TaskInspector: View {
                             Text(task.description)
                                 .font(.title3.weight(.semibold))
                                 .textSelection(.enabled)
+
+                            TaskNotesSection(task: task, model: model)
+                                .id(task.uuid)
                         }
 
                         Divider()
 
                         Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 8) {
-                            ForEach(task.sortedFields, id: \.key) { field in
+                            ForEach(task.sortedFields.filter { $0.key != "annotations" }, id: \.key) { field in
                                 GridRow {
                                     Text(field.key)
                                         .foregroundStyle(.secondary)
-                                    if field.key == "annotations" {
-                                        AnnotationList(value: field.value)
-                                    } else {
-                                        Text(displayValue(for: field.key, value: field.value))
-                                            .textSelection(.enabled)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                    }
+                                    Text(displayValue(for: field.key, value: field.value))
+                                        .textSelection(.enabled)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
                                 }
                             }
                         }
@@ -479,7 +611,7 @@ private struct TaskInspector: View {
                     .frame(minWidth: 160, minHeight: 22)
             }
             LabeledContent("Due") {
-                TextField("Due", text: editBinding(\.due))
+                DueDateField(due: editBinding(\.due))
             }
             LabeledContent("Priority") {
                 PriorityPicker(
@@ -589,6 +721,9 @@ private struct TaskInspector: View {
     }
 
     private func displayValue(for key: String, value: JSONValue) -> String {
+        if key == "due", case let .string(rawDate) = value {
+            return browserDueDisplayValue(rawDate)
+        }
         let dateFields = ["entry", "modified", "due", "wait", "scheduled", "until", "start", "end"]
         guard dateFields.contains(key), case let .string(rawDate) = value,
               let date = TaskwarriorDate.parse(rawDate) else {
@@ -598,34 +733,217 @@ private struct TaskInspector: View {
     }
 }
 
-private struct AnnotationList: View {
-    let value: JSONValue
+private struct TaskNotesSection: View {
+    let task: TaskRecord
+    @ObservedObject var model: TaskBrowserViewModel
+    @State private var isExpanded = true
+    @State private var noteDraft = ""
+    @State private var editingAnnotation: TaskAnnotation?
+    @State private var annotationPendingDeletion: TaskAnnotation?
+    @FocusState private var composerIsFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(annotations, id: \.entry) { annotation in
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(TaskwarriorDate.parse(annotation.entry)?.formatted(date: .abbreviated, time: .shortened)
-                        ?? annotation.entry)
-                        .font(.caption)
+        DisclosureGroup(isExpanded: $isExpanded) {
+            VStack(alignment: .leading, spacing: 12) {
+                if task.annotations.isEmpty {
+                    Text("No notes yet.")
+                        .font(.callout)
                         .foregroundStyle(.secondary)
-                    Text(annotation.description)
-                        .textSelection(.enabled)
+                } else {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(task.annotations) { annotation in
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack(alignment: .firstTextBaseline) {
+                                    Text(formattedEntry(annotation))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                    Menu {
+                                        Button("Edit Note", systemImage: "pencil") {
+                                            beginEditing(annotation)
+                                        }
+                                        Button("Delete Note", systemImage: "trash", role: .destructive) {
+                                            annotationPendingDeletion = annotation
+                                        }
+                                    } label: {
+                                        Image(systemName: "ellipsis")
+                                            .frame(width: 18, height: 16)
+                                    }
+                                    .menuStyle(.borderlessButton)
+                                    .fixedSize()
+                                    .disabled(model.isMutating)
+                                    .accessibilityLabel("Actions for note from \(formattedEntry(annotation))")
+                                }
+                                Text(linkified(annotation.description))
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                                if annotation.id != task.annotations.last?.id {
+                                    Divider()
+                                }
+                            }
+                        }
+                    }
+                }
+
+                noteComposer
+            }
+            .padding(.top, 8)
+        } label: {
+            HStack {
+                Text("Notes")
+                    .font(.headline)
+                Spacer()
+                if task.isAnnotated {
+                    Text(task.annotationCount.formatted())
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .confirmationDialog(
+            "Delete note?",
+            isPresented: deletionConfirmationIsPresented,
+            presenting: annotationPendingDeletion
+        ) { annotation in
+            Button("Delete Note", role: .destructive) {
+                deleteNote(annotation)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("This removes the note from Taskwarrior. You can undo the deletion until another Browser mutation replaces it.")
+        }
     }
 
-    private var annotations: [(entry: String, description: String)] {
-        guard case let .array(values) = value else { return [] }
-        return values.compactMap { value in
-            guard case let .object(fields) = value,
-                  case let .string(entry) = fields["entry"],
-                  case let .string(description) = fields["description"] else { return nil }
-            return (entry, description)
+    private var noteComposer: some View {
+        VStack(alignment: .trailing, spacing: 6) {
+            if let editingAnnotation {
+                HStack {
+                    Label("Editing note from \(formattedEntry(editingAnnotation))", systemImage: "pencil")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Cancel Edit", action: cancelEditing)
+                        .buttonStyle(.link)
+                }
+            }
+
+            ZStack(alignment: .topLeading) {
+                if noteDraft.isEmpty {
+                    Text("Add a note…")
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 7)
+                        .allowsHitTesting(false)
+                }
+                TextEditor(text: $noteDraft)
+                    .scrollContentBackground(.hidden)
+                    .focused($composerIsFocused)
+                    .padding(2)
+                    .accessibilityLabel("New note")
+            }
+            .frame(minHeight: 72, maxHeight: 120)
+            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 6))
+            .overlay {
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(.separator, lineWidth: 1)
+            }
+            .onKeyPress(keys: [.return]) { keyPress in
+                guard keyPress.modifiers.contains(.command), canSubmit else { return .ignored }
+                submitNote()
+                return .handled
+            }
+            .onKeyPress(.escape) {
+                cancelEditing()
+                return .handled
+            }
+
+            HStack(spacing: 8) {
+                Text("⌘↩ to add")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                Button(editingAnnotation == nil ? "Add Note" : "Save Note", action: submitNote)
+                    .disabled(!canSubmit)
+                    .accessibilityLabel(editingAnnotation == nil ? "Add Note" : "Save Note")
+            }
         }
-        .sorted { $0.entry < $1.entry }
+    }
+
+    private var deletionConfirmationIsPresented: Binding<Bool> {
+        Binding(
+            get: { annotationPendingDeletion != nil },
+            set: { isPresented in
+                if !isPresented { annotationPendingDeletion = nil }
+            }
+        )
+    }
+
+    private var canSubmit: Bool {
+        !noteDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !model.isMutating
+    }
+
+    private func submitNote() {
+        guard canSubmit else { return }
+        let note = noteDraft
+        let annotation = editingAnnotation
+        Task {
+            let succeeded: Bool
+            if let annotation {
+                succeeded = await model.replaceNote(annotation, with: note)
+            } else {
+                succeeded = await model.addNote(note)
+            }
+            if succeeded {
+                noteDraft = ""
+                editingAnnotation = nil
+                composerIsFocused = true
+            }
+        }
+    }
+
+    private func beginEditing(_ annotation: TaskAnnotation) {
+        editingAnnotation = annotation
+        noteDraft = annotation.description
+        isExpanded = true
+        composerIsFocused = true
+    }
+
+    private func cancelEditing() {
+        editingAnnotation = nil
+        noteDraft = ""
+        composerIsFocused = false
+    }
+
+    private func deleteNote(_ annotation: TaskAnnotation) {
+        Task {
+            if await model.deleteNote(annotation), editingAnnotation == annotation {
+                cancelEditing()
+            }
+        }
+    }
+
+    private func formattedEntry(_ annotation: TaskAnnotation) -> String {
+        TaskwarriorDate.parse(annotation.entry)?.formatted(date: .abbreviated, time: .shortened)
+            ?? annotation.entry
+    }
+
+    private func linkified(_ text: String) -> AttributedString {
+        var result = AttributedString(text)
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
+            return result
+        }
+        let matches = detector.matches(
+            in: text,
+            range: NSRange(text.startIndex..<text.endIndex, in: text)
+        )
+        for match in matches {
+            guard let url = match.url,
+                  let stringRange = Range(match.range, in: text),
+                  let range = result.range(of: String(text[stringRange])) else { continue }
+            result[range].link = url
+        }
+        return result
     }
 }
 
@@ -637,4 +955,9 @@ private enum TaskwarriorDate {
         formatter.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
         return formatter.date(from: value)
     }
+}
+
+func browserDueDisplayValue(_ value: String) -> String {
+    guard !value.isEmpty else { return "" }
+    return TaskwarriorDate.parse(value)?.formatted(date: .abbreviated, time: .shortened) ?? value
 }

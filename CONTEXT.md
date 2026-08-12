@@ -25,12 +25,12 @@ The one-line text that identifies a task, corresponding to Taskwarrior's `descri
 _Avoid_: Summary, title, notes
 
 **Notes**:
-Optional long-form text associated with a task, distinct from its Description and from Taskwarrior's timestamped annotations.
-_Avoid_: Description, annotation
+The user-facing collection of supplementary text associated with a task. Each Note is stored as a Taskwarrior Annotation so it remains searchable and syncable. Editing replaces the old Annotation with a newly timestamped record containing the revised text.
+_Avoid_: Description
 
 **Annotation**:
-A timestamped text entry attached to a Taskwarrior task; a task may have multiple annotations.
-_Avoid_: Notes, description
+A Taskwarrior-native timestamped text record that initially stores one Note. A task may have multiple Annotations, displayed as Notes in the Mac client.
+_Avoid_: Description
 
 **UDA**:
 A user-defined Taskwarrior attribute whose value is preserved even when the Mac client does not understand its meaning.

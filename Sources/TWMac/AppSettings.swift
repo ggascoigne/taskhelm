@@ -8,6 +8,7 @@ final class AppSettings: ObservableObject {
         static let taskRCPath = "taskRCPath"
         static let capturesSelectedText = "capturesSelectedText"
         static let quickCaptureShortcut = "quickCaptureShortcut"
+        static let taskBrowserShortcut = "taskBrowserShortcut"
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
     }
 
@@ -31,6 +32,14 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    @Published var taskBrowserShortcut: GlobalShortcut {
+        didSet {
+            if let data = try? JSONEncoder().encode(taskBrowserShortcut) {
+                defaults.set(data, forKey: Key.taskBrowserShortcut)
+            }
+        }
+    }
+
     private let defaults: UserDefaults
 
     var needsOnboarding: Bool {
@@ -42,9 +51,19 @@ final class AppSettings: ObservableObject {
         taskExecutablePath = defaults.string(forKey: Key.taskExecutablePath) ?? Self.detectTaskExecutable()
         taskRCPath = defaults.string(forKey: Key.taskRCPath) ?? ""
         capturesSelectedText = defaults.object(forKey: Key.capturesSelectedText) as? Bool ?? false
-        quickCaptureShortcut = defaults.data(forKey: Key.quickCaptureShortcut)
+        let storedQuickCaptureShortcut = defaults.data(forKey: Key.quickCaptureShortcut)
             .flatMap { try? JSONDecoder().decode(GlobalShortcut.self, from: $0) }
-            ?? .defaultQuickCapture
+        quickCaptureShortcut = storedQuickCaptureShortcut == .legacyDefaultQuickCapture
+            ? .defaultQuickCapture
+            : storedQuickCaptureShortcut ?? .defaultQuickCapture
+        taskBrowserShortcut = defaults.data(forKey: Key.taskBrowserShortcut)
+            .flatMap { try? JSONDecoder().decode(GlobalShortcut.self, from: $0) }
+            ?? .defaultTaskBrowser
+
+        if storedQuickCaptureShortcut == .legacyDefaultQuickCapture,
+           let data = try? JSONEncoder().encode(GlobalShortcut.defaultQuickCapture) {
+            defaults.set(data, forKey: Key.quickCaptureShortcut)
+        }
     }
 
     var taskwarriorEnvironment: TaskwarriorEnvironment {

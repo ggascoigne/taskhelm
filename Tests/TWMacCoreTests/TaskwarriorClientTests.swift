@@ -4,6 +4,124 @@ import Testing
 
 @Suite("Taskwarrior client")
 struct TaskwarriorClientTests {
+    @Test func replacesTheExactAnnotationWithANewTimestamp() async throws {
+        let uuid = UUID()
+        let original = TaskAnnotation(entry: "20260805T120000Z", description: "Original")
+        let before = """
+            [{"uuid":"\(uuid.uuidString)","description":"Write report","status":"pending","annotations":[{"entry":"20260805T120000Z","description":"Original"},{"entry":"20260805T130000Z","description":"Keep"}]}]
+            """
+        let after = """
+            [{"uuid":"\(uuid.uuidString)","description":"Write report","status":"pending","annotations":[{"entry":"20260805T130000Z","description":"Keep"},{"entry":"20260805T140000Z","description":"Revised"}]}]
+            """
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, standardOutput: before, standardError: ""),
+            ProcessResult(exitCode: 0, standardOutput: "Imported 1 task.", standardError: ""),
+            ProcessResult(exitCode: 0, standardOutput: after, standardError: ""),
+        ])
+        let client = TaskwarriorClient(
+            environment: TaskwarriorEnvironment(executableURL: URL(fileURLWithPath: "/opt/homebrew/bin/task")),
+            runner: runner
+        )
+
+        _ = try await client.perform(.replaceAnnotation(uuid, original, "Revised"))
+
+        let invocation = runner.invocations[1]
+        #expect(invocation.arguments == [
+            "rc.context=", "rc.confirmation=off", "rc.recurrence.confirmation=no", "import", "-",
+        ])
+        let imported = try #require(invocation.standardInput)
+        let records = try JSONDecoder().decode([[String: JSONValue]].self, from: imported)
+        guard case let .array(annotationValues) = records.first?["annotations"] else {
+            Issue.record("Replacement import did not contain annotations")
+            return
+        }
+        let annotations = annotationValues.compactMap(TaskAnnotation.init(jsonValue:))
+        #expect(annotations.contains(TaskAnnotation(entry: "20260805T130000Z", description: "Keep")))
+        #expect(!annotations.contains(original))
+        #expect(annotations.contains { $0.description == "Revised" && $0.entry != original.entry })
+    }
+
+    @Test func deletesTheExactAnnotation() async throws {
+        let uuid = UUID()
+        let deleted = TaskAnnotation(entry: "20260805T120000Z", description: "Duplicate text")
+        let before = """
+            [{"uuid":"\(uuid.uuidString)","description":"Write report","status":"pending","annotations":[{"entry":"20260805T120000Z","description":"Duplicate text"},{"entry":"20260805T130000Z","description":"Duplicate text"}]}]
+            """
+        let after = """
+            [{"uuid":"\(uuid.uuidString)","description":"Write report","status":"pending","annotations":[{"entry":"20260805T130000Z","description":"Duplicate text"}]}]
+            """
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, standardOutput: before, standardError: ""),
+            ProcessResult(exitCode: 0, standardOutput: "Imported 1 task.", standardError: ""),
+            ProcessResult(exitCode: 0, standardOutput: after, standardError: ""),
+        ])
+        let client = TaskwarriorClient(
+            environment: TaskwarriorEnvironment(executableURL: URL(fileURLWithPath: "/opt/homebrew/bin/task")),
+            runner: runner
+        )
+
+        _ = try await client.perform(.deleteAnnotation(uuid, deleted))
+
+        let imported = try #require(runner.invocations[1].standardInput)
+        let records = try JSONDecoder().decode([[String: JSONValue]].self, from: imported)
+        guard case let .array(annotationValues) = records.first?["annotations"] else {
+            Issue.record("Deletion import did not contain annotations")
+            return
+        }
+        let annotations = annotationValues.compactMap(TaskAnnotation.init(jsonValue:))
+        #expect(annotations == [TaskAnnotation(entry: "20260805T130000Z", description: "Duplicate text")])
+    }
+
+    @Test func addsLiteralAnnotationThroughTheMutationInterface() async throws {
+        let uuid = UUID()
+        let before = """
+            [{"uuid":"\(uuid.uuidString)","description":"Write report","status":"pending"}]
+            """
+        let after = """
+            [{"uuid":"\(uuid.uuidString)","description":"Write report","status":"pending","annotations":[{"entry":"20260805T120000Z","description":"Check https://example.com +literal"}]}]
+            """
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, standardOutput: before, standardError: ""),
+            ProcessResult(exitCode: 0, standardOutput: "Annotated 1 task.", standardError: ""),
+            ProcessResult(exitCode: 0, standardOutput: after, standardError: ""),
+        ])
+        let client = TaskwarriorClient(
+            environment: TaskwarriorEnvironment(executableURL: URL(fileURLWithPath: "/opt/homebrew/bin/task")),
+            runner: runner
+        )
+
+        let receipt = try await client.perform(.annotate(uuid, "Check https://example.com +literal"))
+
+        #expect(receipt.changes[uuid]?.before?.annotations.isEmpty == true)
+        #expect(receipt.changes[uuid]?.after?.annotations.map(\.description) == [
+            "Check https://example.com +literal"
+        ])
+        #expect(runner.invocations[1].arguments == [
+            "rc.context=",
+            "rc.confirmation=off",
+            "rc.bulk=0",
+            "rc.recurrence.confirmation=no",
+            uuid.uuidString.lowercased(),
+            "annotate",
+            "--",
+            "Check https://example.com +literal",
+        ])
+    }
+
+    @Test func exposesAnnotationsChronologically() {
+        let task = TaskRecord(fields: [
+            "uuid": .string(UUID().uuidString),
+            "annotations": .array([
+                .object(["entry": .string("20260805T130000Z"), "description": .string("Second")]),
+                .object(["entry": .string("20260805T120000Z"), "description": .string("First")]),
+            ]),
+        ])
+
+        #expect(task.annotations.map(\.description) == ["First", "Second"])
+        #expect(task.annotationCount == 2)
+        #expect(task.isAnnotated)
+    }
+
     @Test func createsLiteralDescriptionWithStructuredModifiers() async throws {
         let uuid = UUID()
         let runner = RecordingRunner(results: [
@@ -100,6 +218,31 @@ struct TaskwarriorClientTests {
         ])
     }
 
+    @Test func ignoresConfiguredReportLimitWhenExportingAllProjects() async throws {
+        let runner = RecordingRunner(results: [
+            ProcessResult(
+                exitCode: 0,
+                standardOutput: "status:pending -WAITING limit:page\n",
+                standardError: ""
+            ),
+            ProcessResult(exitCode: 0, standardOutput: "[]", standardError: ""),
+        ])
+        let client = TaskwarriorClient(
+            environment: TaskwarriorEnvironment(executableURL: URL(fileURLWithPath: "/opt/homebrew/bin/task")),
+            runner: runner
+        )
+
+        _ = try await client.tasks(matching: TaskQuery(view: .next))
+
+        #expect(runner.invocations[1].arguments == [
+            "rc.json.array=on",
+            "status:pending",
+            "-WAITING",
+            "-PARENT",
+            "export",
+        ])
+    }
+
     @Test func preservesQuotedFilterTermsWithoutUsingAShell() throws {
         #expect(try TaskwarriorClient<RecordingRunner>.filterArguments(in: "project:'Big Work' +next") == [
             "project:Big Work",
@@ -129,6 +272,7 @@ private final class RecordingRunner: ProcessRunning, @unchecked Sendable {
         var executableURL: URL
         var arguments: [String]
         var environment: [String: String]
+        var standardInput: Data?
     }
 
     private let lock = NSLock()
@@ -142,7 +286,38 @@ private final class RecordingRunner: ProcessRunning, @unchecked Sendable {
     func run(executableURL: URL, arguments: [String], environment: [String: String]) throws -> ProcessResult {
         lock.lock()
         defer { lock.unlock() }
-        invocations.append(Invocation(executableURL: executableURL, arguments: arguments, environment: environment))
+        invocations.append(Invocation(
+            executableURL: executableURL,
+            arguments: arguments,
+            environment: environment,
+            standardInput: nil
+        ))
         return results.removeFirst()
+    }
+
+    func run(
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        standardInput: Data
+    ) throws -> ProcessResult {
+        lock.lock()
+        defer { lock.unlock() }
+        invocations.append(Invocation(
+            executableURL: executableURL,
+            arguments: arguments,
+            environment: environment,
+            standardInput: standardInput
+        ))
+        return results.removeFirst()
+    }
+}
+
+private extension TaskAnnotation {
+    init?(jsonValue: JSONValue) {
+        guard case let .object(fields) = jsonValue,
+              case let .string(entry) = fields["entry"],
+              case let .string(description) = fields["description"] else { return nil }
+        self.init(entry: entry, description: description)
     }
 }

@@ -50,7 +50,7 @@ Quick Capture is independently useful and is implemented before Task Browser.
 - Failure, unsupported source controls, denial, or timeout opens an empty panel.
 - Selected text is trimmed and whitespace-normalized into the one-line Description without silent truncation or automatic splitting.
 - Rich text, images, source application metadata, browser URLs, and file paths are out of scope.
-- Long-form Notes and automatic Description/Notes splitting are deferred.
+- Long-form document Notes and automatic Description/Notes splitting are deferred; the Browser presents Taskwarrior Annotations as Notes.
 
 ### Fields and interaction
 
@@ -93,6 +93,7 @@ Quick Capture is independently useful and is implemented before Task Browser.
 - Saved custom filters are deferred.
 - Default order is Urgency descending, not literal Priority.
 - Table sorting is client-local and remembered between Browser sessions; clicking the Urgency column restores Urgency ordering.
+- The details pane can be placed on the right or below the task table; its selected layout and last user-set size are remembered independently of task selection and between Browser sessions.
 - Refresh after client mutations, whenever the Browser regains focus, manually on request, and approximately every five seconds while visible.
 - External changes are always re-read through Taskwarrior rather than detected by interpreting its database.
 
@@ -103,7 +104,7 @@ Quick Capture is independently useful and is implemented before Task Browser.
 - Columns may be resized and reordered; choosing arbitrary columns is deferred.
 - The inspector displays full exported fidelity:
   - Known attributes receive native formatting.
-  - Annotations are chronological and initially read-only.
+  - Annotations are presented chronologically as Notes and can be appended, replaced, and deleted.
   - Unknown and namespaced UDAs appear read-only.
 - Inspector edits use explicit Edit and Save/Cancel, applying changed fields in one Taskwarrior mutation.
 
@@ -114,8 +115,9 @@ Quick Capture is independently useful and is implemented before Task Browser.
 - Start and stop.
 - Delete, always after native confirmation.
 - Create through Quick Capture.
+- Add, edit, and delete Notes backed by Taskwarrior Annotations; editing creates a newly timestamped replacement.
 - Multi-selection bulk actions: Complete, Delete, set Project, and add/remove Tags.
-- Dependencies, recurrence, annotations, arbitrary UDAs, and other fields are initially read-only.
+- Dependencies, recurrence, arbitrary UDAs, and other fields are initially read-only.
 - The app uses its own confirmation for destructive operations and disables duplicate CLI confirmation for that invocation.
 
 ### Undo
@@ -146,8 +148,7 @@ The app does not install Taskwarrior, create a beginner workflow, or provide a T
 
 ## Deferred possibilities
 
-- Long-form Notes, potentially backed by a namespaced UDA after its interoperability is designed.
-- Annotation editing.
+- Long-form document Notes, potentially backed by a namespaced UDA after its interoperability is designed.
 - Dependencies and recurrence editing.
 - Arbitrary UDA editing.
 - Saved filters.

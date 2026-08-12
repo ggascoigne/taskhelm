@@ -1,4 +1,6 @@
 import AppKit
+import Carbon.HIToolbox
+import SwiftUI
 import Testing
 @testable import TWMac
 
@@ -58,5 +60,54 @@ struct SettingsPanelControllerTests {
 
         #expect(!settings.needsOnboarding)
         #expect(!AppSettings(defaults: defaults).needsOnboarding)
+    }
+
+    @Test func globalShortcutDefaultsAndEditsArePersisted() {
+        let suite = "ShortcutSettingsTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let settings = AppSettings(defaults: defaults)
+        #expect(settings.quickCaptureShortcut == GlobalShortcut(
+            keyCode: UInt32(kVK_ANSI_T),
+            modifiers: UInt32(controlKey | optionKey | cmdKey),
+            keyLabel: "T"
+        ))
+        #expect(settings.taskBrowserShortcut == GlobalShortcut(
+            keyCode: UInt32(kVK_ANSI_T),
+            modifiers: UInt32(shiftKey | controlKey | optionKey | cmdKey),
+            keyLabel: "T"
+        ))
+
+        settings.quickCaptureShortcut = GlobalShortcut(keyCode: 1, modifiers: UInt32(cmdKey), keyLabel: "S")
+        settings.taskBrowserShortcut = GlobalShortcut(keyCode: 2, modifiers: UInt32(cmdKey | shiftKey), keyLabel: "D")
+        let restored = AppSettings(defaults: defaults)
+
+        #expect(restored.quickCaptureShortcut == settings.quickCaptureShortcut)
+        #expect(restored.taskBrowserShortcut == settings.taskBrowserShortcut)
+    }
+
+    @Test func legacyDefaultQuickCaptureShortcutMigratesToNewDefault() throws {
+        let suite = "ShortcutMigrationTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(
+            try JSONEncoder().encode(GlobalShortcut.legacyDefaultQuickCapture),
+            forKey: "quickCaptureShortcut"
+        )
+
+        let settings = AppSettings(defaults: defaults)
+
+        #expect(settings.quickCaptureShortcut == .defaultQuickCapture)
+        #expect(AppSettings(defaults: defaults).quickCaptureShortcut == .defaultQuickCapture)
+    }
+
+    @Test func menuEquivalentsMatchConfiguredGlobalShortcuts() {
+        #expect(GlobalShortcut.defaultQuickCapture.menuKeyEquivalent == "t")
+        #expect(GlobalShortcut.defaultQuickCapture.menuModifiers == [.control, .option, .command])
+        #expect(GlobalShortcut.defaultTaskBrowser.menuKeyEquivalent == "t")
+        #expect(GlobalShortcut.defaultTaskBrowser.menuModifiers == [.shift, .control, .option, .command])
     }
 }

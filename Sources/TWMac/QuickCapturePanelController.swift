@@ -4,13 +4,22 @@ import SwiftUI
 @MainActor
 final class QuickCapturePanelController: NSObject, NSWindowDelegate {
     private let makeViewModel: () -> QuickCaptureViewModel
+    private let onShowTaskBrowser: () -> Void
     private var panel: QuickCapturePanel?
     private var hostingController: NSHostingController<AnyView>?
     private var viewModel: QuickCaptureViewModel?
 
-    init(makeViewModel: @escaping () -> QuickCaptureViewModel) {
+    init(
+        makeViewModel: @escaping () -> QuickCaptureViewModel,
+        onShowTaskBrowser: @escaping () -> Void
+    ) {
         self.makeViewModel = makeViewModel
+        self.onShowTaskBrowser = onShowTaskBrowser
         super.init()
+    }
+
+    convenience init(makeViewModel: @escaping () -> QuickCaptureViewModel) {
+        self.init(makeViewModel: makeViewModel, onShowTaskBrowser: {})
     }
 
     func prewarm() {
@@ -42,6 +51,7 @@ final class QuickCapturePanelController: NSObject, NSWindowDelegate {
             Task { await model.submit() }
         }
         panel.onCancel = { [weak self] in self?.dismiss() }
+        panel.onShowTaskBrowser = onShowTaskBrowser
         hostingController.rootView = AnyView(
             QuickCaptureView(model: model)
                 .id(UUID())
@@ -130,6 +140,17 @@ private extension NSView {
 final class QuickCapturePanel: NSPanel {
     var onSubmit: (() -> Void)?
     var onCancel: (() -> Void)?
+    var onShowTaskBrowser: (() -> Void)?
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let shortcutModifiers: NSEvent.ModifierFlags = [.command, .control, .option, .shift]
+        if event.modifierFlags.intersection(shortcutModifiers) == .command,
+           event.keyCode == 11 {
+            onShowTaskBrowser?()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 
     override func sendEvent(_ event: NSEvent) {
         guard event.type == .keyDown else {

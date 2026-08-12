@@ -68,7 +68,7 @@ struct TagTokenField: NSViewRepresentable {
     func updateNSView(_ tokenField: NSTokenField, context: Context) {
         context.coordinator.tags = $tags
         context.coordinator.suggestions = suggestions
-        if !tokenField.currentEditorHasMarkedText {
+        if !tokenField.hasActiveEditor {
             tokenField.objectValue = tags
         }
     }
@@ -76,15 +76,32 @@ struct TagTokenField: NSViewRepresentable {
     final class Coordinator: NSObject, NSTokenFieldDelegate {
         var tags: Binding<[String]>
         var suggestions: [String]
+        private var updateGeneration = 0
 
         init(tags: Binding<[String]>, suggestions: [String]) {
             self.tags = tags
             self.suggestions = suggestions
         }
 
+        func controlTextDidChange(_ notification: Notification) {
+            updateTags(from: notification)
+        }
+
         func controlTextDidEndEditing(_ notification: Notification) {
+            updateTags(from: notification)
+        }
+
+        private func updateTags(from notification: Notification) {
             guard let tokenField = notification.object as? NSTokenField else { return }
-            tags.wrappedValue = Self.strings(from: tokenField.objectValue)
+            let updatedTags = Self.strings(from: tokenField.objectValue)
+            updateGeneration += 1
+            let generation = updateGeneration
+            DispatchQueue.main.async { [weak self] in
+                guard let self, generation == self.updateGeneration else { return }
+                if self.tags.wrappedValue != updatedTags {
+                    self.tags.wrappedValue = updatedTags
+                }
+            }
         }
 
         func tokenField(
@@ -93,7 +110,9 @@ struct TagTokenField: NSViewRepresentable {
             indexOfToken tokenIndex: Int,
             indexOfSelectedItem selectedIndex: UnsafeMutablePointer<Int>?
         ) -> [Any]? {
-            suggestions.filter { $0.localizedCaseInsensitiveContains(substring) }
+            suggestions.filter {
+                $0.range(of: substring, options: [.caseInsensitive, .anchored]) != nil
+            }
         }
 
         private static func strings(from value: Any?) -> [String] {
@@ -113,7 +132,5 @@ struct TagTokenField: NSViewRepresentable {
 }
 
 private extension NSTokenField {
-    var currentEditorHasMarkedText: Bool {
-        (currentEditor() as? NSTextView)?.hasMarkedText() == true
-    }
+    var hasActiveEditor: Bool { currentEditor() != nil }
 }

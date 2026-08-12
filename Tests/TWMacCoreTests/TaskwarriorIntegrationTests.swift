@@ -87,6 +87,37 @@ struct TaskwarriorIntegrationTests {
         #expect(tasks.first?.project == "")
         #expect(tasks.first?.priority == "L")
 
+        let annotation = try await client.perform(
+            .annotate(created.uuid, "Review https://example.com +literal\nThen send it.")
+        )
+        tasks = try await client.tasks(matching: TaskQuery(rawFilter: uuidFilter))
+        #expect(tasks.first?.annotations.map(\.description) == [
+            "Review https://example.com +literal\nThen send it."
+        ])
+
+        let originalAnnotation = try #require(tasks.first?.annotations.first)
+        let replacement = try await client.perform(
+            .replaceAnnotation(created.uuid, originalAnnotation, "Revised note")
+        )
+        tasks = try await client.tasks(matching: TaskQuery(rawFilter: uuidFilter))
+        let revisedAnnotation = try #require(tasks.first?.annotations.first)
+        #expect(revisedAnnotation.description == "Revised note")
+        #expect(revisedAnnotation.entry != originalAnnotation.entry)
+        try await client.undo(replacement)
+        tasks = try await client.tasks(matching: TaskQuery(rawFilter: uuidFilter))
+        #expect(tasks.first?.annotations == [originalAnnotation])
+
+        let noteDeletion = try await client.perform(.deleteAnnotation(created.uuid, originalAnnotation))
+        tasks = try await client.tasks(matching: TaskQuery(rawFilter: uuidFilter))
+        #expect(tasks.first?.annotations.isEmpty == true)
+        try await client.undo(noteDeletion)
+        tasks = try await client.tasks(matching: TaskQuery(rawFilter: uuidFilter))
+        #expect(tasks.first?.annotations == [originalAnnotation])
+
+        try await client.undo(annotation)
+        tasks = try await client.tasks(matching: TaskQuery(rawFilter: uuidFilter))
+        #expect(tasks.first?.annotations.isEmpty == true)
+
         let completion = try await client.perform(.complete(created.uuid))
         #expect(try await client.tasks(matching: TaskQuery(view: .completed, rawFilter: uuidFilter)).count == 1)
         try await client.undo(completion)

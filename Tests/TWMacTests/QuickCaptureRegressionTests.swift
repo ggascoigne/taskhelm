@@ -7,6 +7,38 @@ import TWMacCore
 @MainActor
 @Suite("Quick Capture regressions", .serialized)
 struct QuickCaptureRegressionTests {
+    @Test func commandBRequestsTaskBrowser() throws {
+        _ = NSApplication.shared
+        let panel = QuickCapturePanel(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 80),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { panel.close() }
+        var requestCount = 0
+        panel.onShowTaskBrowser = { requestCount += 1 }
+
+        let event = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: .command,
+                timestamp: 0,
+                windowNumber: panel.windowNumber,
+                context: nil,
+                characters: "b",
+                charactersIgnoringModifiers: "b",
+                isARepeat: false,
+                keyCode: 11
+            )
+        )
+        let handled = panel.performKeyEquivalent(with: event)
+
+        #expect(handled)
+        #expect(requestCount == 1)
+    }
+
     @Test func returnSubmitsWhileProjectFieldHasFocus() async throws {
         let client = RecordingTaskwarriorClient()
         let model = QuickCaptureViewModel(client: client, onCancel: {}, onCreated: {})
@@ -101,17 +133,56 @@ struct QuickCaptureRegressionTests {
         let priority = try #require(
             mounted.host.descendants(ofType: NSPopUpButton.self).first { $0.itemTitles.contains("Priority") }
         )
-        let datePicker = try #require(mounted.host.descendant(ofType: NSDatePicker.self))
         let dueFrame = dueField.convert(dueField.bounds, to: mounted.host)
-        let datePickerFrame = datePicker.convert(datePicker.bounds, to: mounted.host)
         let priorityFrame = priority.convert(priority.bounds, to: mounted.host)
 
         #expect(!dueFrame.intersects(priorityFrame), "Due \(dueFrame) overlaps Priority \(priorityFrame)")
-        #expect(
-            !datePickerFrame.intersects(priorityFrame),
-            "Date picker \(datePickerFrame) overlaps Priority \(priorityFrame)"
-        )
         #expect(priorityFrame.maxX < dueField.convert(dueField.bounds, to: mounted.host).minX)
+    }
+
+    @Test func emptyDueDateStaysUnsetWithoutAReferenceDatePicker() throws {
+        let model = QuickCaptureViewModel(client: RecordingTaskwarriorClient(), onCancel: {}, onCreated: {})
+        let mounted = mount(model)
+        defer { mounted.panel.close() }
+
+        #expect(model.draft.due.isEmpty)
+        #expect(mounted.host.descendant(ofType: NSDatePicker.self) == nil)
+    }
+
+    @Test func tagCompletionDoesNotReplaceTypedPrefixWithAnInteriorMatch() throws {
+        var tags: [String] = []
+        let coordinator = TagTokenField.Coordinator(
+            tags: Binding(get: { tags }, set: { tags = $0 }),
+            suggestions: ["hermes"]
+        )
+        let tokenField = NSTokenField()
+
+        let completions = coordinator.tokenField(
+            tokenField,
+            completionsForSubstring: "s",
+            indexOfToken: 0,
+            indexOfSelectedItem: nil
+        ) as? [String]
+
+        #expect(completions == [])
+    }
+
+    @Test func newlyTypedTagUpdatesBindingAfterAppKitDelegateReturns() async {
+        var tags: [String] = []
+        let coordinator = TagTokenField.Coordinator(
+            tags: Binding(get: { tags }, set: { tags = $0 }),
+            suggestions: ["hermes"]
+        )
+        let tokenField = NSTokenField()
+        tokenField.stringValue = "skill"
+
+        (coordinator as NSControlTextEditingDelegate).controlTextDidChange?(
+            Notification(name: NSControl.textDidChangeNotification, object: tokenField)
+        )
+
+        #expect(tags.isEmpty, "The AppKit delegate must not synchronously re-enter SwiftUI")
+        await waitUntil { tags == ["skill"] }
+        #expect(tags == ["skill"])
     }
 
     @Test func priorityKeyboardSelectionUpdatesImmediately() async throws {

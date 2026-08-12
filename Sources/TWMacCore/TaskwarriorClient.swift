@@ -117,7 +117,9 @@ public struct TaskwarriorClient<Runner: ProcessRunning>: Sendable {
         case .next:
             let result = try await run(arguments: ["_get", "rc.report.next.filter"])
             try requireSuccess(result)
-            filter = try Self.filterArguments(in: result.standardOutput)
+            filter = try Self.filterArguments(in: result.standardOutput).filter {
+                !$0.lowercased().hasPrefix("limit:")
+            }
         case .waiting:
             filter = ["status:waiting"]
         case .completed:
@@ -144,8 +146,14 @@ public struct TaskwarriorClient<Runner: ProcessRunning>: Sendable {
 
     public func perform(_ mutation: TaskMutation) async throws -> TaskMutationReceipt {
         let before = try await allTasks()
-        let arguments = try mutationArguments(mutation, tasks: before)
-        let result = try await run(arguments: arguments)
+        let result: ProcessResult
+        switch mutation {
+        case .replaceAnnotation, .deleteAnnotation:
+            result = try await importAnnotationMutation(mutation, tasks: before)
+        default:
+            let arguments = try mutationArguments(mutation, tasks: before)
+            result = try await run(arguments: arguments)
+        }
         try requireSuccess(result)
         let after = try await allTasks()
         let changes = Self.changes(from: before, to: after)
@@ -255,6 +263,18 @@ public struct TaskwarriorClient<Runner: ProcessRunning>: Sendable {
                 throw TaskwarriorError.processFailed(exitCode: -1, message: "No bulk changes to apply.")
             }
             command = ["modify"] + modifications
+        case let .annotate(value, text):
+            uuids = [value]
+            let note = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !note.isEmpty else {
+                throw TaskwarriorError.processFailed(exitCode: -1, message: "A note cannot be empty.")
+            }
+            command = ["annotate", "--", note]
+        case .replaceAnnotation, .deleteAnnotation:
+            throw TaskwarriorError.processFailed(
+                exitCode: -1,
+                message: "Annotation replacement must use Taskwarrior import."
+            )
         case let .complete(value): uuids = [value]; command = ["done"]
         case let .completeMany(values): uuids = values; command = ["done"]
         case let .start(value): uuids = [value]; command = ["start"]
@@ -272,6 +292,83 @@ public struct TaskwarriorClient<Runner: ProcessRunning>: Sendable {
         }
         let filters = uuids.map { $0.uuidString.lowercased() }.sorted()
         return mutationPrefix + filters + command
+    }
+
+    private func importAnnotationMutation(
+        _ mutation: TaskMutation,
+        tasks: [TaskRecord]
+    ) async throws -> ProcessResult {
+        let uuid: UUID
+        let original: TaskAnnotation
+        let replacement: String?
+        switch mutation {
+        case let .replaceAnnotation(value, annotation, text):
+            uuid = value
+            original = annotation
+            let note = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !note.isEmpty else {
+                throw TaskwarriorError.processFailed(exitCode: -1, message: "A note cannot be empty.")
+            }
+            replacement = note
+        case let .deleteAnnotation(value, annotation):
+            uuid = value
+            original = annotation
+            replacement = nil
+        default:
+            throw TaskwarriorError.processFailed(exitCode: -1, message: "Invalid annotation mutation.")
+        }
+
+        guard let task = tasks.first(where: { $0.uuid == uuid }) else {
+            throw TaskwarriorError.taskNotFound(uuid)
+        }
+        var fields = task.storedFields
+        guard case let .array(existingValues) = fields["annotations"] else {
+            throw TaskwarriorError.annotationNotFound(uuid)
+        }
+        var values = existingValues
+        guard let index = values.firstIndex(where: { Self.matches($0, annotation: original) }) else {
+            throw TaskwarriorError.annotationNotFound(uuid)
+        }
+        values.remove(at: index)
+
+        if let replacement {
+            let usedEntries = Set(existingValues.compactMap(Self.annotationEntry))
+            values.append(.object([
+                "entry": .string(Self.nextAnnotationTimestamp(avoiding: usedEntries)),
+                "description": .string(replacement),
+            ]))
+        }
+        fields["annotations"] = .array(values)
+        fields["modified"] = .string(Self.nextImportTimestamp())
+
+        let data = try JSONEncoder().encode([fields])
+        return try await run(
+            arguments: ["rc.context=", "rc.confirmation=off", "rc.recurrence.confirmation=no", "import", "-"],
+            standardInput: data
+        )
+    }
+
+    private static func matches(_ value: JSONValue, annotation: TaskAnnotation) -> Bool {
+        guard case let .object(fields) = value,
+              case let .string(entry) = fields["entry"],
+              case let .string(description) = fields["description"] else { return false }
+        return entry == annotation.entry && description == annotation.description
+    }
+
+    private static func annotationEntry(_ value: JSONValue) -> String? {
+        guard case let .object(fields) = value,
+              case let .string(entry) = fields["entry"] else { return nil }
+        return entry
+    }
+
+    private static func nextAnnotationTimestamp(avoiding usedEntries: Set<String>) -> String {
+        var date = Date()
+        var value = taskTimestamp(date)
+        while usedEntries.contains(value) {
+            date.addTimeInterval(1)
+            value = taskTimestamp(date)
+        }
+        return value
     }
 
     private static func changes(from before: [TaskRecord], to after: [TaskRecord]) -> [UUID: TaskChange] {
@@ -293,11 +390,15 @@ public struct TaskwarriorClient<Runner: ProcessRunning>: Sendable {
     }
 
     private static func nextImportTimestamp() -> String {
+        taskTimestamp(Date().addingTimeInterval(1))
+    }
+
+    private static func taskTimestamp(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
-        return formatter.string(from: Date().addingTimeInterval(1))
+        return formatter.string(from: date)
     }
 
     private var taskEnvironment: [String: String] {

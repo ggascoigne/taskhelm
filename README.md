@@ -47,8 +47,10 @@ Implemented:
 - Persistent three-region Task Browser window
 - Next, Waiting, and Completed views with Project, Tag, and raw Taskwarrior filtering
 - Urgency-first task table with remembered client-local sorting
+- Resizable details pane that can be placed on the right or bottom, with its layout and size remembered between sessions
 - Full-fidelity read-only inspector, manual refresh, focus refresh, and five-second visible refresh
 - Inspector editing for Description, Project, Tags, Due, and Priority
+- Notes-style chronological annotations with multiline capture, editing, confirmed deletion, and URL linking
 - Project and Tag autocomplete plus configured Priority choices while editing
 - Complete, Start/Stop, and confirmed Delete actions
 - Multi-selection Start, Stop, Complete, and confirmed Delete actions

@@ -29,6 +29,19 @@ struct TaskBrowserViewModelTests {
         #expect(client.queries.last == TaskQuery(view: .completed, project: "TWMac", tag: "focus"))
     }
 
+    @Test func allProjectAndTagSelectionsClearTheOtherFacet() async {
+        let client = BrowserClient(results: [[], [], [], []])
+        let model = TaskBrowserViewModel(client: client, defaults: ephemeralDefaults())
+
+        await model.selectTag("skill")
+        await model.selectProject(nil)
+        #expect(client.queries.last == TaskQuery(view: .next))
+
+        await model.selectProject("dsc")
+        await model.selectTag(nil)
+        #expect(client.queries.last == TaskQuery(view: .next))
+    }
+
     @Test func remembersClientLocalSorting() async {
         let defaults = ephemeralDefaults()
         let model = TaskBrowserViewModel(client: BrowserClient(results: []), defaults: defaults)
@@ -40,6 +53,30 @@ struct TaskBrowserViewModelTests {
         #expect(restored.sortAscending)
         #expect(restored.tableSortOrder.first?.keyPath == \TaskRecord.description)
         #expect(restored.tableSortOrder.first?.order == .forward)
+    }
+
+    @Test func remembersDetailsPosition() {
+        let defaults = ephemeralDefaults()
+        let model = TaskBrowserViewModel(client: BrowserClient(results: []), defaults: defaults)
+
+        #expect(model.detailsPosition == .right)
+
+        model.setDetailsPosition(.bottom)
+        let restored = TaskBrowserViewModel(client: BrowserClient(results: []), defaults: defaults)
+
+        #expect(restored.detailsPosition == .bottom)
+    }
+
+    @Test func remembersDetailsPaneSizes() {
+        let defaults = ephemeralDefaults()
+        let model = TaskBrowserViewModel(client: BrowserClient(results: []), defaults: defaults)
+
+        model.setRightDetailsWidth(375)
+        model.setBottomDetailsHeight(340)
+        let restored = TaskBrowserViewModel(client: BrowserClient(results: []), defaults: defaults)
+
+        #expect(restored.rightDetailsWidth == 375)
+        #expect(restored.bottomDetailsHeight == 340)
     }
 
     @Test func placesUnsetPriorityBelowLowWhenSortingHighestFirst() async {
@@ -129,6 +166,82 @@ struct TaskBrowserViewModelTests {
         ])
     }
 
+    @Test func addsTrimmedNoteToTheSelectedTask() async {
+        let selected = task(description: "Selected")
+        var mutations: [TaskMutation] = []
+        let model = TaskBrowserViewModel(
+            defaults: ephemeralDefaults(),
+            loadTasks: { _ in [selected] },
+            loadMetadata: {
+                TaskwarriorMetadata(projects: [], tags: [], priorities: [], context: nil)
+            },
+            performMutation: { mutation in
+                mutations.append(mutation)
+                return TaskMutationReceipt(changes: [:], feedback: "")
+            },
+            undoMutation: { _ in }
+        )
+        await model.refresh()
+        model.selection = [selected.uuid]
+
+        let added = await model.addNote("  A useful note\nwith detail.  ")
+
+        #expect(added)
+        #expect(mutations == [.annotate(selected.uuid, "A useful note\nwith detail.")])
+        #expect(model.canUndo)
+    }
+
+    @Test func refusesEmptyNoteOrMissingSelection() async {
+        let selected = task(description: "Selected")
+        var mutations: [TaskMutation] = []
+        let model = TaskBrowserViewModel(
+            defaults: ephemeralDefaults(),
+            loadTasks: { _ in [selected] },
+            loadMetadata: {
+                TaskwarriorMetadata(projects: [], tags: [], priorities: [], context: nil)
+            },
+            performMutation: { mutation in
+                mutations.append(mutation)
+                return TaskMutationReceipt(changes: [:], feedback: "")
+            },
+            undoMutation: { _ in }
+        )
+        await model.refresh()
+
+        #expect(!(await model.addNote("   \n  ")))
+        model.selection = [selected.uuid]
+        #expect(!(await model.addNote("   \n  ")))
+        #expect(mutations.isEmpty)
+    }
+
+    @Test func replacesAndDeletesNoteOnTheSelectedTask() async {
+        let note = TaskAnnotation(entry: "20260805T120000Z", description: "Original")
+        let selected = task(description: "Selected", annotations: [note])
+        var mutations: [TaskMutation] = []
+        let model = TaskBrowserViewModel(
+            defaults: ephemeralDefaults(),
+            loadTasks: { _ in [selected] },
+            loadMetadata: {
+                TaskwarriorMetadata(projects: [], tags: [], priorities: [], context: nil)
+            },
+            performMutation: { mutation in
+                mutations.append(mutation)
+                return TaskMutationReceipt(changes: [:], feedback: "")
+            },
+            undoMutation: { _ in }
+        )
+        await model.refresh()
+        model.selection = [selected.uuid]
+
+        #expect(await model.replaceNote(note, with: "  Revised  "))
+        #expect(await model.deleteNote(note))
+
+        #expect(mutations == [
+            .replaceAnnotation(selected.uuid, note, "Revised"),
+            .deleteAnnotation(selected.uuid, note),
+        ])
+    }
+
     @Test func bulkEditingProducesOneUndoableMutation() async {
         let first = task(description: "First", project: "Old", tags: ["remove"])
         let second = task(description: "Second")
@@ -208,7 +321,8 @@ struct TaskBrowserViewModelTests {
         urgency: Double = 0,
         priority: String = "",
         status: String = "pending",
-        isActive: Bool = false
+        isActive: Bool = false,
+        annotations: [TaskAnnotation] = []
     ) -> TaskRecord {
         var fields: [String: JSONValue] = [
             "uuid": .string(UUID().uuidString),
@@ -220,6 +334,14 @@ struct TaskBrowserViewModelTests {
             "status": .string(status),
         ]
         if isActive { fields["start"] = .string("20260803T120000Z") }
+        if !annotations.isEmpty {
+            fields["annotations"] = .array(annotations.map { annotation in
+                .object([
+                    "entry": .string(annotation.entry),
+                    "description": .string(annotation.description),
+                ])
+            })
+        }
         return TaskRecord(fields: fields)
     }
 

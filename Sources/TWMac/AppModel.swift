@@ -11,7 +11,11 @@ final class AppModel: ObservableObject {
     private var capturePanel: QuickCapturePanelController?
     private var settingsPanel: SettingsPanelController?
     private var onboardingPanel: OnboardingPanelController?
-    private var hotKeyManager: GlobalHotKeyManager?
+    private var quickCaptureHotKeyManager: GlobalHotKeyManager?
+    private var taskBrowserHotKeyManager: GlobalHotKeyManager?
+    private var quickCaptureShortcutError: String?
+    private var taskBrowserShortcutError: String?
+    private var taskBrowserPresenter: (() -> Void)?
     private var cancellables: Set<AnyCancellable> = []
     private let selectedTextReader = SelectedTextReader()
 
@@ -22,29 +26,42 @@ final class AppModel: ObservableObject {
     init(settings: AppSettings, launchAtLogin: LaunchAtLoginController) {
         self.settings = settings
         self.launchAtLogin = launchAtLogin
-        capturePanel = QuickCapturePanelController { [weak self] in
-            guard let self else { fatalError("AppModel released while presenting Quick Capture") }
-            return QuickCaptureViewModel(
-                client: TaskwarriorClient(
-                    environment: self.settings.taskwarriorEnvironment,
-                    runner: FoundationProcessRunner()
-                ),
-                onCancel: { [weak self] in self?.capturePanel?.dismiss() },
-                onCreated: { [weak self] in self?.capturePanel?.dismiss() }
-            )
-        }
+        capturePanel = QuickCapturePanelController(
+            makeViewModel: { [weak self] in
+                guard let self else { fatalError("AppModel released while presenting Quick Capture") }
+                return QuickCaptureViewModel(
+                    client: TaskwarriorClient(
+                        environment: self.settings.taskwarriorEnvironment,
+                        runner: FoundationProcessRunner()
+                    ),
+                    onCancel: { [weak self] in self?.capturePanel?.dismiss() },
+                    onCreated: { [weak self] in self?.capturePanel?.dismiss() }
+                )
+            },
+            onShowTaskBrowser: { [weak self] in self?.showTaskBrowser() }
+        )
 
-        hotKeyManager = GlobalHotKeyManager { [weak self] in
+        quickCaptureHotKeyManager = GlobalHotKeyManager(identifier: 1) { [weak self] in
             self?.showQuickCapture()
         }
-        registerShortcut(settings.quickCaptureShortcut)
+        taskBrowserHotKeyManager = GlobalHotKeyManager(identifier: 2) { [weak self] in
+            self?.showTaskBrowser()
+        }
+        registerQuickCaptureShortcut(settings.quickCaptureShortcut)
+        registerTaskBrowserShortcut(settings.taskBrowserShortcut)
         if settings.capturesSelectedText {
             requestAccessibilityPermission()
         }
         settings.$quickCaptureShortcut
             .dropFirst()
             .sink { [weak self] shortcut in
-                self?.registerShortcut(shortcut)
+                self?.registerQuickCaptureShortcut(shortcut)
+            }
+            .store(in: &cancellables)
+        settings.$taskBrowserShortcut
+            .dropFirst()
+            .sink { [weak self] shortcut in
+                self?.registerTaskBrowserShortcut(shortcut)
             }
             .store(in: &cancellables)
 
@@ -75,6 +92,16 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func configureTaskBrowserPresenter(_ presenter: @escaping () -> Void) {
+        taskBrowserPresenter = presenter
+    }
+
+    func showTaskBrowser() {
+        capturePanel?.dismiss()
+        NSApp.activate(ignoringOtherApps: true)
+        taskBrowserPresenter?()
+    }
+
     func requestAccessibilityPermission() {
         _ = selectedTextReader.requestPermission()
     }
@@ -103,13 +130,31 @@ final class AppModel: ObservableObject {
         onboardingPanel = controller
     }
 
-    private func registerShortcut(_ shortcut: GlobalShortcut) {
+    private func registerQuickCaptureShortcut(_ shortcut: GlobalShortcut) {
         do {
-            try hotKeyManager?.register(shortcut)
-            shortcutRegistrationError = nil
+            try quickCaptureHotKeyManager?.register(shortcut)
+            quickCaptureShortcutError = nil
         } catch {
-            shortcutRegistrationError = error.localizedDescription
+            quickCaptureShortcutError = "New Task: \(error.localizedDescription)"
         }
+        updateShortcutRegistrationError()
+    }
+
+    private func registerTaskBrowserShortcut(_ shortcut: GlobalShortcut) {
+        do {
+            try taskBrowserHotKeyManager?.register(shortcut)
+            taskBrowserShortcutError = nil
+        } catch {
+            taskBrowserShortcutError = "Task Browser: \(error.localizedDescription)"
+        }
+        updateShortcutRegistrationError()
+    }
+
+    private func updateShortcutRegistrationError() {
+        shortcutRegistrationError = [quickCaptureShortcutError, taskBrowserShortcutError]
+            .compactMap { $0 }
+            .joined(separator: "\n")
+        if shortcutRegistrationError?.isEmpty == true { shortcutRegistrationError = nil }
         settingsPanel?.update(shortcutError: shortcutRegistrationError)
         onboardingPanel?.update(shortcutError: shortcutRegistrationError)
     }

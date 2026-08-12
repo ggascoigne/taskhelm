@@ -7,8 +7,10 @@ struct TWMacApp: App {
     @StateObject private var model = AppModel()
 
     var body: some Scene {
-        MenuBarExtra("TW Mac", systemImage: "checkmark.circle") {
+        MenuBarExtra {
             MenuBarContent(model: model, launchAtLogin: model.launchAtLogin)
+        } label: {
+            MenuBarLabel(model: model)
         }
         .menuBarExtraStyle(.menu)
 
@@ -16,7 +18,18 @@ struct TWMacApp: App {
             TaskBrowserRootView(settings: model.settings)
                 .frame(minWidth: 960, minHeight: 600)
         }
-        .commands { TaskBrowserMenuCommands() }
+        .commands {
+            CommandGroup(replacing: .newItem) {
+                Button("Quick Capture") {
+                    model.showQuickCapture()
+                }
+                .keyboardShortcut(
+                    model.settings.quickCaptureShortcut.menuKeyEquivalent,
+                    modifiers: model.settings.quickCaptureShortcut.menuModifiers
+                )
+            }
+            TaskBrowserMenuCommands()
+        }
         .defaultSize(width: 1_220, height: 760)
         .defaultPosition(.center)
         .defaultLaunchBehavior(.suppressed)
@@ -24,22 +37,40 @@ struct TWMacApp: App {
     }
 }
 
-private struct MenuBarContent: View {
+private struct MenuBarLabel: View {
     @ObservedObject var model: AppModel
-    @ObservedObject var launchAtLogin: LaunchAtLoginController
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
+        Label("TW Mac", systemImage: "checkmark.circle")
+            .onAppear {
+                model.configureTaskBrowserPresenter {
+                    openWindow(id: "task-browser")
+                }
+            }
+    }
+}
+
+private struct MenuBarContent: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var launchAtLogin: LaunchAtLoginController
+
+    var body: some View {
         Button("Task Browser") {
-            NSApp.activate(ignoringOtherApps: true)
-            openWindow(id: "task-browser")
+            model.showTaskBrowser()
         }
-        .keyboardShortcut("b")
+        .keyboardShortcut(
+            model.settings.taskBrowserShortcut.menuKeyEquivalent,
+            modifiers: model.settings.taskBrowserShortcut.menuModifiers
+        )
 
         Button("Quick Capture") {
             model.showQuickCapture()
         }
-        .keyboardShortcut("n")
+        .keyboardShortcut(
+            model.settings.quickCaptureShortcut.menuKeyEquivalent,
+            modifiers: model.settings.quickCaptureShortcut.menuModifiers
+        )
 
         Divider()
 

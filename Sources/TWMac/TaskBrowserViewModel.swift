@@ -12,6 +12,11 @@ enum BrowserSortField: String, CaseIterable {
     var title: String { rawValue.capitalized }
 }
 
+enum BrowserDetailsPosition: String, CaseIterable {
+    case right
+    case bottom
+}
+
 @MainActor
 final class TaskBrowserViewModel: ObservableObject {
     @Published private(set) var tasks: [TaskRecord] = []
@@ -27,6 +32,9 @@ final class TaskBrowserViewModel: ObservableObject {
     @Published private(set) var lastRefreshed: Date?
     @Published private(set) var sortField: BrowserSortField
     @Published private(set) var sortAscending: Bool
+    @Published private(set) var detailsPosition: BrowserDetailsPosition
+    @Published private(set) var rightDetailsWidth: Double
+    @Published private(set) var bottomDetailsHeight: Double
     @Published var edits: TaskEdits?
     @Published var bulkEdits: BulkTaskEdits?
     @Published private(set) var isMutating = false
@@ -35,6 +43,9 @@ final class TaskBrowserViewModel: ObservableObject {
     private enum DefaultsKey {
         static let sortField = "browserSortField"
         static let sortAscending = "browserSortAscending"
+        static let detailsPosition = "browserDetailsPosition"
+        static let rightDetailsWidth = "browserRightDetailsWidth"
+        static let bottomDetailsHeight = "browserBottomDetailsHeight"
     }
 
     private let loadTasks: @MainActor (TaskQuery) async throws -> [TaskRecord]
@@ -55,6 +66,10 @@ final class TaskBrowserViewModel: ObservableObject {
         self.defaults = defaults
         sortField = defaults.string(forKey: DefaultsKey.sortField).flatMap(BrowserSortField.init(rawValue:)) ?? .urgency
         sortAscending = defaults.object(forKey: DefaultsKey.sortAscending) as? Bool ?? false
+        detailsPosition = defaults.string(forKey: DefaultsKey.detailsPosition)
+            .flatMap(BrowserDetailsPosition.init(rawValue:)) ?? .right
+        rightDetailsWidth = defaults.object(forKey: DefaultsKey.rightDetailsWidth) as? Double ?? 320
+        bottomDetailsHeight = defaults.object(forKey: DefaultsKey.bottomDetailsHeight) as? Double ?? 300
     }
 
     init(
@@ -71,6 +86,10 @@ final class TaskBrowserViewModel: ObservableObject {
         self.defaults = defaults
         sortField = defaults.string(forKey: DefaultsKey.sortField).flatMap(BrowserSortField.init(rawValue:)) ?? .urgency
         sortAscending = defaults.object(forKey: DefaultsKey.sortAscending) as? Bool ?? false
+        detailsPosition = defaults.string(forKey: DefaultsKey.detailsPosition)
+            .flatMap(BrowserDetailsPosition.init(rawValue:)) ?? .right
+        rightDetailsWidth = defaults.object(forKey: DefaultsKey.rightDetailsWidth) as? Double ?? 320
+        bottomDetailsHeight = defaults.object(forKey: DefaultsKey.bottomDetailsHeight) as? Double ?? 300
     }
 
     var displayedTasks: [TaskRecord] {
@@ -172,6 +191,25 @@ final class TaskBrowserViewModel: ObservableObject {
         await mutate(uuids.count == 1 ? .stop(uuids[0]) : .stopMany(uuids))
     }
 
+    func addNote(_ text: String) async -> Bool {
+        guard let task = selectedTask else { return false }
+        let note = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !note.isEmpty else { return false }
+        return await mutate(.annotate(task.uuid, note))
+    }
+
+    func replaceNote(_ annotation: TaskAnnotation, with text: String) async -> Bool {
+        guard let task = selectedTask, task.annotations.contains(annotation) else { return false }
+        let note = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !note.isEmpty else { return false }
+        return await mutate(.replaceAnnotation(task.uuid, annotation, note))
+    }
+
+    func deleteNote(_ annotation: TaskAnnotation) async -> Bool {
+        guard let task = selectedTask, task.annotations.contains(annotation) else { return false }
+        return await mutate(.deleteAnnotation(task.uuid, annotation))
+    }
+
     func undo() async {
         guard let receipt = undoReceipt, !isMutating else { return }
         isMutating = true
@@ -194,12 +232,14 @@ final class TaskBrowserViewModel: ObservableObject {
 
     func selectProject(_ value: String?) async {
         project = value
+        if value == nil { tag = nil }
         selection.removeAll()
         await refresh()
     }
 
     func selectTag(_ value: String?) async {
         tag = value
+        if value == nil { project = nil }
         selection.removeAll()
         await refresh()
     }
@@ -221,6 +261,21 @@ final class TaskBrowserViewModel: ObservableObject {
         sortAscending = comparator.order == .forward
         defaults.set(sortField.rawValue, forKey: DefaultsKey.sortField)
         defaults.set(sortAscending, forKey: DefaultsKey.sortAscending)
+    }
+
+    func setDetailsPosition(_ position: BrowserDetailsPosition) {
+        detailsPosition = position
+        defaults.set(position.rawValue, forKey: DefaultsKey.detailsPosition)
+    }
+
+    func setRightDetailsWidth(_ width: Double) {
+        rightDetailsWidth = width
+        defaults.set(width, forKey: DefaultsKey.rightDetailsWidth)
+    }
+
+    func setBottomDetailsHeight(_ height: Double) {
+        bottomDetailsHeight = height
+        defaults.set(height, forKey: DefaultsKey.bottomDetailsHeight)
     }
 
     func refresh() async {
@@ -256,8 +311,9 @@ final class TaskBrowserViewModel: ObservableObject {
         if generation == loadGeneration { isLoading = false }
     }
 
-    private func mutate(_ mutation: TaskMutation) async {
-        guard !isMutating else { return }
+    @discardableResult
+    private func mutate(_ mutation: TaskMutation) async -> Bool {
+        guard !isMutating else { return false }
         isMutating = true
         errorMessage = nil
         do {
@@ -267,6 +323,7 @@ final class TaskBrowserViewModel: ObservableObject {
             errorMessage = error.localizedDescription
         }
         isMutating = false
+        return errorMessage == nil
     }
 
     private func compare(_ lhs: TaskRecord, _ rhs: TaskRecord) -> Bool {
