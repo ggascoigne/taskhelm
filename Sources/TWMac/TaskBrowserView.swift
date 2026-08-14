@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import TWMacCore
+import UniformTypeIdentifiers
 
 struct TaskBrowserRootView: View {
     @StateObject private var model: TaskBrowserViewModel
@@ -53,6 +54,8 @@ struct TaskBrowserView: View {
     @ObservedObject var model: TaskBrowserViewModel
     @State private var confirmsDelete = false
     @State private var resizeStart: CGFloat?
+    @State private var boardDropTarget: BrowserBoardColumn?
+    @State private var pendingPriorityDrop: PendingBoardPriorityDrop?
 
     private let dividerSize: CGFloat = 9
     private let minimumListWidth: CGFloat = 480
@@ -84,12 +87,43 @@ struct TaskBrowserView: View {
             guard (notification.object as? NSWindow)?.title == "Task Browser" else { return }
             Task { await model.refresh() }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .taskwarriorTaskCreated)) { _ in
+            Task { await model.refresh(reloadMetadata: true) }
+        }
         .onChange(of: model.selection) { _, _ in model.cancelEditing() }
         .alert(deleteTitle, isPresented: $confirmsDelete) {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) { Task { await model.deleteSelected() } }
         } message: {
             Text(deleteMessage)
+        }
+        .confirmationDialog(
+            "Choose a priority",
+            isPresented: Binding(
+                get: { pendingPriorityDrop != nil },
+                set: { if !$0 { pendingPriorityDrop = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let drop = pendingPriorityDrop {
+                ForEach(boardPriorityChoices, id: \.self) { priority in
+                    Button(boardPriorityTitle(priority)) {
+                        pendingPriorityDrop = nil
+                        Task {
+                            await model.moveBoardTask(
+                                drop.taskID,
+                                into: drop.destination,
+                                priority: priority
+                            )
+                        }
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingPriorityDrop = nil
+            }
+        } message: {
+            Text("The task needs a priority to remain in To Do.")
         }
     }
 
@@ -121,7 +155,9 @@ struct TaskBrowserView: View {
                 resizeStart = nil
             }
             .frame(width: dividerSize)
-            TaskInspector(model: model)
+            TaskInspector(model: model) {
+                confirmsDelete = true
+            }
                 .frame(width: inspectorWidth)
         }
     }
@@ -143,7 +179,9 @@ struct TaskBrowserView: View {
                 resizeStart = nil
             }
             .frame(height: dividerSize)
-            TaskInspector(model: model)
+            TaskInspector(model: model) {
+                confirmsDelete = true
+            }
                 .frame(height: inspectorHeight)
         }
     }
@@ -184,42 +222,10 @@ struct TaskBrowserView: View {
             } else if !model.isLoading && model.tasks.isEmpty {
                 ContentUnavailableView("No Tasks", systemImage: "checkmark.circle")
             } else {
-                Table(
-                    model.displayedTasks,
-                    selection: $model.selection,
-                    sortOrder: Binding(get: { model.tableSortOrder }, set: model.updateSortOrder)
-                ) {
-                    TableColumn("Description", value: \.description) { task in
-                        HStack(spacing: 5) {
-                            TaskStateIndicators(task: task)
-                            Text(task.description)
-                                .lineLimit(1)
-                        }
-                    }
-                    .width(min: 220, ideal: 360)
-
-                    TableColumn("Project", value: \.project) { task in Text(task.project).lineLimit(1) }
-                        .width(min: 80, ideal: 120)
-                    TableColumn("Tags", value: \.tagsText) { task in Text(task.tagsText).lineLimit(1) }
-                        .width(min: 80, ideal: 130)
-                    TableColumn("Due", value: \.due) { task in
-                        Text(browserDueDisplayValue(task.due)).lineLimit(1)
-                    }
-                        .width(min: 90, ideal: 120)
-                    TableColumn("Priority", value: \.priority) { task in Text(task.priority).lineLimit(1) }
-                        .width(65)
-                    TableColumn("Urgency", value: \.urgency) { task in
-                        Text(task.urgency.formatted(.number.precision(.fractionLength(1))))
-                            .monospacedDigit()
-                    }
-                    .width(70)
-                }
-                .contextMenu(forSelectionType: UUID.self) { selection in
-                    contextMenu(for: selection)
-                } primaryAction: { selection in
-                    guard selection.count == 1, !model.isEditing else { return }
-                    model.selection = selection
-                    DispatchQueue.main.async { model.beginEditing() }
+                if model.view == .board {
+                    taskBoard
+                } else {
+                    taskTable
                 }
             }
         }
@@ -232,6 +238,177 @@ struct TaskBrowserView: View {
         }
     }
 
+    private var taskTable: some View {
+        Table(
+            model.displayedTasks,
+            selection: $model.selection,
+            sortOrder: Binding(get: { model.tableSortOrder }, set: model.updateSortOrder)
+        ) {
+            TableColumn("Description", value: \.description) { task in
+                HStack(spacing: 5) {
+                    ProjectColorBar(color: model.projectColor(for: task.project))
+                    TaskStateIndicators(task: task)
+                    Text(task.description)
+                        .lineLimit(1)
+                }
+            }
+            .width(min: 220, ideal: 360)
+
+            TableColumn("Project", value: \.project) { task in Text(task.project).lineLimit(1) }
+                .width(min: 80, ideal: 120)
+            TableColumn("Tags", value: \.tagsText) { task in Text(task.tagsText).lineLimit(1) }
+                .width(min: 80, ideal: 130)
+            TableColumn("Due", value: \.due) { task in
+                Text(browserDueDisplayValue(task.due)).lineLimit(1)
+            }
+                .width(min: 90, ideal: 120)
+            TableColumn("Priority", value: \.priority) { task in Text(task.priority).lineLimit(1) }
+                .width(65)
+            TableColumn("Urgency", value: \.urgency) { task in
+                Text(task.urgency.formatted(.number.precision(.fractionLength(1))))
+                    .monospacedDigit()
+            }
+            .width(70)
+        }
+        .contextMenu(forSelectionType: UUID.self) { selection in
+            contextMenu(for: selection)
+        } primaryAction: { selection in
+            guard selection.count == 1, !model.isEditing else { return }
+            model.selection = selection
+            DispatchQueue.main.async { model.beginEditing() }
+        }
+    }
+
+    private var taskBoard: some View {
+        GeometryReader { geometry in
+            let columnWidth = max(200, (geometry.size.width - 40) / 4)
+            ScrollView(.horizontal) {
+                HStack(alignment: .top, spacing: 10) {
+                    ForEach(model.boardColumns) { column in
+                        boardColumn(column)
+                            .frame(width: columnWidth)
+                    }
+                }
+                .padding(10)
+                .frame(minHeight: geometry.size.height, alignment: .top)
+            }
+        }
+        .accessibilityIdentifier("Task Board")
+    }
+
+    private func boardColumn(_ column: BrowserBoardColumnDefinition) -> some View {
+        let tasks = model.tasks(in: column.id)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(column.title)
+                    .font(.headline)
+                Spacer()
+                Text(tasks.count.formatted())
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 4)
+
+            ScrollView {
+                LazyVStack(spacing: 8) {
+                    ForEach(tasks) { task in
+                        boardCard(task)
+                    }
+                }
+            }
+        }
+        .padding(8)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
+        .background(
+            boardDropTarget == column.id ? Color.accentColor.opacity(0.14) : Color.clear,
+            in: RoundedRectangle(cornerRadius: 10)
+        )
+        .overlay {
+            if boardDropTarget == column.id {
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.accentColor, lineWidth: 2)
+            }
+        }
+        .accessibilityIdentifier("Board Column \(column.title)")
+        .onDrop(
+            of: [.utf8PlainText],
+            isTargeted: Binding(
+                get: { boardDropTarget == column.id },
+                set: { targeted in
+                    if targeted {
+                        boardDropTarget = column.id
+                    } else if boardDropTarget == column.id {
+                        boardDropTarget = nil
+                    }
+                }
+            )
+        ) { providers in
+            loadBoardDrop(from: providers, into: column.id)
+        }
+    }
+
+    private func boardCard(_ task: TaskRecord) -> some View {
+        let isSelected = model.selection.contains(task.uuid)
+        return BoardTaskCard(
+            task: task,
+            isSelected: isSelected,
+            projectColor: model.projectColor(for: task.project)
+        ) {
+            model.selectBoardTask(task.uuid)
+        }
+        .contextMenu {
+            contextMenu(for: [task.uuid])
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("Board Card \(task.uuid.uuidString)")
+        .onDrag {
+            NSItemProvider(object: BoardDragPayload.string(for: task.uuid) as NSString)
+        }
+    }
+
+    private func loadBoardDrop(
+        from providers: [NSItemProvider],
+        into destination: BrowserBoardColumn
+    ) -> Bool {
+        guard let provider = providers.first(where: { $0.canLoadObject(ofClass: NSString.self) }) else {
+            return false
+        }
+        provider.loadObject(ofClass: NSString.self) { item, _ in
+            guard let value = item as? NSString,
+                  let taskID = BoardDragPayload.taskID(from: value as String) else { return }
+            Task { @MainActor in
+                _ = handleBoardDrop(taskID, into: destination)
+            }
+        }
+        return true
+    }
+
+    private func handleBoardDrop(_ taskID: UUID, into destination: BrowserBoardColumn) -> Bool {
+        guard model.canDropBoardTask(taskID, into: destination) else { return false }
+        boardDropTarget = nil
+        model.selectBoardTask(taskID)
+        if model.boardDropNeedsPriority(taskID, into: destination) {
+            pendingPriorityDrop = PendingBoardPriorityDrop(taskID: taskID, destination: destination)
+        } else {
+            Task { await model.moveBoardTask(taskID, into: destination) }
+        }
+        return true
+    }
+
+    private var boardPriorityChoices: [String] {
+        let choices = model.configuredPriorities.filter { !$0.isEmpty }
+        return choices.isEmpty ? ["H", "M", "L"] : choices
+    }
+
+    private func boardPriorityTitle(_ priority: String) -> String {
+        switch priority {
+        case "H": "High (H)"
+        case "M": "Medium (M)"
+        case "L": "Low (L)"
+        default: priority
+        }
+    }
+
     @ToolbarContentBuilder
     private var browserToolbar: some ToolbarContent {
         ToolbarItemGroup {
@@ -239,51 +416,6 @@ struct TaskBrowserView: View {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
                     .help(errorMessage)
-            }
-
-            if model.selectionCount > 0 {
-                Button {
-                    model.beginEditing()
-                } label: {
-                    toolbarLabel(model.selectionCount == 1 ? "Edit" : "Bulk Edit", systemImage: "pencil")
-                }
-                .disabled(model.isMutating || model.isEditing)
-            }
-
-            if model.selectionCanStart {
-                Button {
-                    Task { await model.startSelected() }
-                } label: {
-                    toolbarLabel("Start", systemImage: "play.fill")
-                }
-                .disabled(model.isMutating || model.isEditing)
-            }
-
-            if model.selectionCanStop {
-                Button {
-                    Task { await model.stopSelected() }
-                } label: {
-                    toolbarLabel("Stop", systemImage: "stop.fill")
-                }
-                .disabled(model.isMutating || model.isEditing)
-            }
-
-            if model.selectionCanComplete {
-                Button {
-                    Task { await model.completeSelected() }
-                } label: {
-                    toolbarLabel("Complete", systemImage: "checkmark.circle")
-                }
-                .disabled(model.isMutating || model.isEditing)
-            }
-
-            Menu {
-                Button("Delete", systemImage: "trash", role: .destructive) {
-                    confirmsDelete = true
-                }
-                .disabled(model.selectionCount == 0 || model.isMutating || model.isEditing)
-            } label: {
-                toolbarLabel("More", systemImage: "ellipsis.circle")
             }
 
             Button {
@@ -398,6 +530,89 @@ struct TaskBrowserView: View {
     }
 }
 
+private struct PendingBoardPriorityDrop {
+    let taskID: UUID
+    let destination: BrowserBoardColumn
+}
+
+enum BoardDragPayload {
+    private static let prefix = "twmac-board-task:"
+
+    static func string(for taskID: UUID) -> String {
+        prefix + taskID.uuidString.lowercased()
+    }
+
+    static func taskID(from value: String) -> UUID? {
+        guard value.hasPrefix(prefix) else { return nil }
+        return UUID(uuidString: String(value.dropFirst(prefix.count)))
+    }
+}
+
+struct BoardTaskCard: View {
+    let task: TaskRecord
+    let isSelected: Bool
+    var projectColor: ProjectColor? = nil
+    let select: () -> Void
+
+    var body: some View {
+        Button(action: select) {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    TaskStateIndicators(task: task)
+                    Text(task.description)
+                        .font(.callout.weight(.medium))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+
+                if !task.project.isEmpty {
+                    Label(task.project, systemImage: "folder")
+                        .lineLimit(1)
+                }
+
+                if !task.tags.isEmpty {
+                    Label(task.tagsText, systemImage: "tag")
+                        .lineLimit(2)
+                }
+
+                HStack(spacing: 8) {
+                    if !task.due.isEmpty {
+                        Label(browserDueDisplayValue(task.due), systemImage: "calendar")
+                    }
+                    if !task.priority.isEmpty {
+                        Text(task.priority)
+                            .font(.caption.bold())
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(.quaternary, in: Capsule())
+                            .help("Priority \(task.priority)")
+                    }
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.primary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(10)
+            .background(
+                isSelected ? Color.accentColor.opacity(0.18) : Color(nsColor: .controlBackgroundColor),
+                in: RoundedRectangle(cornerRadius: 8)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isSelected ? Color.accentColor : Color(nsColor: .separatorColor), lineWidth: 1)
+            }
+            .overlay(alignment: .leading) {
+                ProjectColorBar(color: projectColor)
+                    .padding(.vertical, 6)
+                    .padding(.leading, 2)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+    }
+}
+
 private struct BrowserResizeHandle: View {
     let axis: Axis
     let onChanged: (CGFloat) -> Void
@@ -434,6 +649,7 @@ private struct BrowserResizeHandle: View {
 
 private struct BrowserSidebar: View {
     @ObservedObject var model: TaskBrowserViewModel
+    @State private var showsCompletedProjects = false
 
     var body: some View {
         List {
@@ -442,6 +658,7 @@ private struct BrowserSidebar: View {
                     sidebarButton(view.title, icon: icon(for: view), selected: model.view == view) {
                         Task { await model.selectView(view) }
                     }
+                    .help(help(for: view))
                 }
             }
 
@@ -450,13 +667,21 @@ private struct BrowserSidebar: View {
                     sidebarButton(
                         "All Projects",
                         icon: "tray",
-                        selected: model.project == nil && model.tag == nil
+                        selected: model.selectedProjects.isEmpty && model.selectedTags.isEmpty
                     ) {
-                        Task { await model.selectProject(nil) }
+                        Task { await model.clearFacetSelections() }
                     }
-                    ForEach(model.projects, id: \.self) { project in
-                        sidebarButton(project, icon: "folder", selected: model.project == project) {
-                            Task { await model.selectProject(project) }
+                    ForEach(model.activeProjects, id: \.self) { project in
+                        projectRow(project)
+                    }
+                    if !model.completedProjects.isEmpty {
+                        DisclosureGroup(isExpanded: $showsCompletedProjects) {
+                            ForEach(model.completedProjects, id: \.self) { project in
+                                projectRow(project)
+                            }
+                        } label: {
+                            Text("Completed Projects (\(model.completedProjects.count))")
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -467,13 +692,13 @@ private struct BrowserSidebar: View {
                     sidebarButton(
                         "All Tags",
                         icon: "tag",
-                        selected: model.project == nil && model.tag == nil
+                        selected: model.selectedProjects.isEmpty && model.selectedTags.isEmpty
                     ) {
-                        Task { await model.selectTag(nil) }
+                        Task { await model.clearFacetSelections() }
                     }
                     ForEach(model.tags, id: \.self) { tag in
-                        sidebarButton(tag, icon: "tag", selected: model.tag == tag) {
-                            Task { await model.selectTag(tag) }
+                        sidebarButton(tag, icon: "tag", selected: model.selectedTags.contains(tag)) {
+                            Task { await model.toggleTag(tag) }
                         }
                     }
                 }
@@ -497,12 +722,60 @@ private struct BrowserSidebar: View {
         .listRowBackground(selected ? Color.accentColor.opacity(0.18) : Color.clear)
     }
 
+    private func projectRow(_ project: String) -> some View {
+        HStack(spacing: 7) {
+            Button {
+                Task { await model.toggleProject(project) }
+            } label: {
+                Label(project, systemImage: "folder")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            ProjectColorWell(
+                color: Binding(
+                    get: { model.projectColor(for: project)?.color ?? .gray },
+                    set: { model.setProjectColor(ProjectColor(color: $0), for: project) }
+                ),
+                label: "Color for \(project)"
+            )
+            .frame(width: 13, height: 13)
+            .help("Choose color for \(project)")
+        }
+        .listRowBackground(
+            model.selectedProjects.contains(project) ? Color.accentColor.opacity(0.18) : Color.clear
+        )
+    }
+
     private func icon(for view: BrowserViewKind) -> String {
         switch view {
         case .next: "list.bullet"
         case .waiting: "clock"
         case .completed: "checkmark.circle"
+        case .board: "rectangle.split.3x1"
         }
+    }
+
+    private func help(for view: BrowserViewKind) -> String {
+        switch view {
+        case .next: "Tasks available to work on now, using your Taskwarrior next report filter."
+        case .waiting: "Tasks deferred until their wait date; Taskwarrior normally hides them from Next until then."
+        case .completed: "Completed tasks."
+        case .board: "Kanban view combining tasks from Next with completed tasks."
+        }
+    }
+}
+
+private struct ProjectColorBar: View {
+    let color: ProjectColor?
+
+    var body: some View {
+        Capsule()
+            .fill(color?.color ?? Color.clear)
+            .frame(width: 4)
+            .frame(minHeight: 18)
+            .accessibilityHidden(true)
     }
 }
 
@@ -531,8 +804,20 @@ private struct TaskStateIndicators: View {
 
 private struct TaskInspector: View {
     @ObservedObject var model: TaskBrowserViewModel
+    let confirmDelete: () -> Void
 
     var body: some View {
+        VStack(spacing: 0) {
+            if model.selectionCount > 0 {
+                actionBar
+                Divider()
+            }
+            inspectorContent
+        }
+    }
+
+    @ViewBuilder
+    private var inspectorContent: some View {
         Group {
             if let task = model.selectedTask {
                 ScrollView {
@@ -577,6 +862,59 @@ private struct TaskInspector: View {
         }
     }
 
+    private var actionBar: some View {
+        HStack(spacing: 8) {
+            Button {
+                model.beginEditing()
+            } label: {
+                Label(model.selectionCount == 1 ? "Edit" : "Bulk Edit", systemImage: "pencil")
+            }
+            .disabled(model.isMutating || model.isEditing)
+
+            if model.selectionCanStart {
+                Button {
+                    Task { await model.startSelected() }
+                } label: {
+                    Label("Start", systemImage: "play.fill")
+                }
+                .disabled(model.isMutating || model.isEditing)
+            }
+
+            if model.selectionCanStop {
+                Button {
+                    Task { await model.stopSelected() }
+                } label: {
+                    Label("Stop", systemImage: "stop.fill")
+                }
+                .disabled(model.isMutating || model.isEditing)
+            }
+
+            if model.selectionCanComplete {
+                Button {
+                    Task { await model.completeSelected() }
+                } label: {
+                    Label("Complete", systemImage: "checkmark.circle")
+                }
+                .disabled(model.isMutating || model.isEditing)
+            }
+
+            Spacer(minLength: 0)
+
+            Menu {
+                Button("Delete", systemImage: "trash", role: .destructive, action: confirmDelete)
+                    .disabled(model.isMutating || model.isEditing)
+            } label: {
+                Label("More", systemImage: "ellipsis.circle")
+            }
+        }
+        .labelStyle(.titleAndIcon)
+        .controlSize(.small)
+        .padding(.horizontal, 10)
+        .frame(minHeight: 36)
+        .background(.bar)
+        .accessibilityIdentifier("Task Details Actions")
+    }
+
     private var multiSelection: some View {
         VStack(spacing: 16) {
             Image(systemName: "checkmark.circle.badge.questionmark")
@@ -584,7 +922,7 @@ private struct TaskInspector: View {
                 .foregroundStyle(.secondary)
             Text("\(model.selectionCount) Tasks Selected")
                 .font(.headline)
-            Text("Use the toolbar, Task menu, or secondary click to act on this selection.")
+            Text("Use the actions above, Task menu, or secondary click to act on this selection.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

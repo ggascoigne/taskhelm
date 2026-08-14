@@ -25,12 +25,20 @@ public struct TaskwarriorMetadata: Equatable, Sendable {
     public var tags: [String]
     public var priorities: [String]
     public var context: String?
+    public var completedProjects: [String]
 
-    public init(projects: [String], tags: [String], priorities: [String], context: String?) {
+    public init(
+        projects: [String],
+        tags: [String],
+        priorities: [String],
+        context: String?,
+        completedProjects: [String] = []
+    ) {
         self.projects = projects
         self.tags = tags
         self.priorities = priorities
         self.context = context
+        self.completedProjects = completedProjects
     }
 }
 
@@ -84,6 +92,7 @@ public enum TaskMutation: Equatable, Sendable {
     case deleteAnnotation(UUID, TaskAnnotation)
     case complete(UUID)
     case completeMany([UUID])
+    case reopen(UUID)
     case start(UUID)
     case startMany([UUID])
     case stop(UUID)
@@ -95,6 +104,11 @@ public enum TaskMutation: Equatable, Sendable {
 public struct TaskChange: Equatable, Sendable {
     public var before: TaskRecord?
     public var after: TaskRecord?
+
+    public init(before: TaskRecord?, after: TaskRecord?) {
+        self.before = before
+        self.after = after
+    }
 }
 
 public struct TaskMutationReceipt: Equatable, Sendable {

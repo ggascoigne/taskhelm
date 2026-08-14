@@ -108,6 +108,37 @@ struct TaskwarriorClientTests {
         ])
     }
 
+    @Test func reopensACompletedTaskByRestoringPendingStatus() async throws {
+        let uuid = UUID()
+        let completed = """
+            [{"uuid":"\(uuid.uuidString)","description":"Moved by mistake","status":"completed"}]
+            """
+        let pending = """
+            [{"uuid":"\(uuid.uuidString)","description":"Moved by mistake","status":"pending"}]
+            """
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, standardOutput: completed, standardError: ""),
+            ProcessResult(exitCode: 0, standardOutput: "Modified 1 task.", standardError: ""),
+            ProcessResult(exitCode: 0, standardOutput: pending, standardError: ""),
+        ])
+        let client = TaskwarriorClient(
+            environment: TaskwarriorEnvironment(executableURL: URL(fileURLWithPath: "/opt/homebrew/bin/task")),
+            runner: runner
+        )
+
+        _ = try await client.perform(.reopen(uuid))
+
+        #expect(runner.invocations[1].arguments == [
+            "rc.context=",
+            "rc.confirmation=off",
+            "rc.bulk=0",
+            "rc.recurrence.confirmation=no",
+            uuid.uuidString.lowercased(),
+            "modify",
+            "status:pending",
+        ])
+    }
+
     @Test func exposesAnnotationsChronologically() {
         let task = TaskRecord(fields: [
             "uuid": .string(UUID().uuidString),
@@ -239,6 +270,61 @@ struct TaskwarriorClientTests {
             "status:pending",
             "-WAITING",
             "-PARENT",
+            "export",
+        ])
+    }
+
+    @Test func combinesMultipleSelectionsWithOrWithinEachFacet() async throws {
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, standardOutput: "status:pending\n", standardError: ""),
+            ProcessResult(exitCode: 0, standardOutput: "[]", standardError: ""),
+        ])
+        let client = TaskwarriorClient(
+            environment: TaskwarriorEnvironment(executableURL: URL(fileURLWithPath: "/opt/homebrew/bin/task")),
+            runner: runner
+        )
+
+        _ = try await client.tasks(matching: TaskQuery(
+            view: .next,
+            projects: ["amber", "dsc"],
+            tags: ["skill", "work"]
+        ))
+
+        #expect(runner.invocations[1].arguments == [
+            "rc.json.array=on",
+            "status:pending",
+            "-PARENT",
+            "(", "project:amber", "or", "project:dsc", ")",
+            "(", "+skill", "or", "+work", ")",
+            "export",
+        ])
+    }
+
+    @Test func boardCombinesNextAndCompletedBeforeApplyingFacets() async throws {
+        let runner = RecordingRunner(results: [
+            ProcessResult(
+                exitCode: 0,
+                standardOutput: "status:pending -WAITING limit:page\n",
+                standardError: ""
+            ),
+            ProcessResult(exitCode: 0, standardOutput: "[]", standardError: ""),
+        ])
+        let client = TaskwarriorClient(
+            environment: TaskwarriorEnvironment(executableURL: URL(fileURLWithPath: "/opt/homebrew/bin/task")),
+            runner: runner
+        )
+
+        _ = try await client.tasks(
+            matching: TaskQuery(view: .board, project: "dsc", tag: "skill", rawFilter: "priority:H")
+        )
+
+        #expect(runner.invocations[1].arguments == [
+            "rc.json.array=on",
+            "(", "status:pending", "-WAITING", "or", "status:completed", ")",
+            "-PARENT",
+            "project:dsc",
+            "+skill",
+            "priority:H",
             "export",
         ])
     }

@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Testing
 import TWMacCore
+import UniformTypeIdentifiers
 @testable import TWMac
 
 @MainActor
@@ -102,6 +103,86 @@ struct TaskBrowserLayoutTests {
         let rawDue = "20260812T000000Z"
         #expect(browserDueDisplayValue(rawDue) != rawDue)
         #expect(browserDueDisplayValue("").isEmpty)
+    }
+
+    @Test func clickingBlankSpaceInBoardCardSelectsIt() async throws {
+        var selected = false
+        let hostingView = NSHostingView(
+            rootView: BoardTaskCard(task: layoutTask(), isSelected: false) {
+                selected = true
+            }
+        )
+        hostingView.frame = NSRect(x: 0, y: 0, width: 260, height: 100)
+        let window = NSWindow(
+            contentRect: hostingView.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        window.layoutIfNeeded()
+        hostingView.layoutSubtreeIfNeeded()
+
+        let blankPoint = NSPoint(x: hostingView.bounds.maxX - 6, y: hostingView.bounds.midY)
+        let windowPoint = hostingView.convert(blankPoint, to: nil)
+        let mouseDown = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: windowPoint,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1
+        ))
+        let mouseUp = try #require(NSEvent.mouseEvent(
+            with: .leftMouseUp,
+            location: windowPoint,
+            modifierFlags: [],
+            timestamp: 0.01,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 2,
+            clickCount: 1,
+            pressure: 0
+        ))
+
+        window.sendEvent(mouseDown)
+        window.sendEvent(mouseUp)
+        await Task.yield()
+
+        #expect(selected)
+    }
+
+    @Test func boardDragPayloadUsesAConcreteTextTypeAndRoundTripsTheTaskID() {
+        let taskID = UUID()
+        let value = BoardDragPayload.string(for: taskID)
+        let provider = NSItemProvider(object: value as NSString)
+
+        #expect(provider.hasItemConformingToTypeIdentifier(UTType.utf8PlainText.identifier))
+        #expect(BoardDragPayload.taskID(from: value) == taskID)
+        #expect(BoardDragPayload.taskID(from: taskID.uuidString) == nil)
+    }
+
+    @Test func projectColorWellIsCircularAndUsesItsNativeAnchoredPicker() throws {
+        var color = Color.red
+        let hostingView = NSHostingView(
+            rootView: ProjectColorWell(
+                color: Binding(get: { color }, set: { color = $0 }),
+                label: "Project color"
+            )
+            .frame(width: 13, height: 13)
+        )
+        hostingView.frame = NSRect(x: 0, y: 0, width: 13, height: 13)
+        hostingView.layoutSubtreeIfNeeded()
+
+        let well = try #require(hostingView.descendants.compactMap { $0 as? NSColorWell }.first)
+        #expect(abs(well.frame.width - well.frame.height) < 0.5)
+        #expect(well.colorWellStyle == .minimal)
+        #expect(well.pulldownAction == nil)
     }
 
     private func layoutTask(due: String? = nil) -> TaskRecord {

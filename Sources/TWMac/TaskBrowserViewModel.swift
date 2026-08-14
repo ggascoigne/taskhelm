@@ -21,11 +21,14 @@ enum BrowserDetailsPosition: String, CaseIterable {
 final class TaskBrowserViewModel: ObservableObject {
     @Published private(set) var tasks: [TaskRecord] = []
     @Published private(set) var projects: [String] = []
+    @Published private(set) var activeProjects: [String] = []
+    @Published private(set) var completedProjects: [String] = []
+    @Published private(set) var projectColors: [String: ProjectColor]
     @Published private(set) var tags: [String] = []
     @Published var selection: Set<UUID> = []
     @Published var view: BrowserViewKind = .next
-    @Published var project: String?
-    @Published var tag: String?
+    @Published private(set) var selectedProjects: Set<String> = []
+    @Published private(set) var selectedTags: Set<String> = []
     @Published var rawFilter = ""
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
@@ -41,11 +44,13 @@ final class TaskBrowserViewModel: ObservableObject {
     @Published private(set) var undoReceipt: TaskMutationReceipt?
 
     private enum DefaultsKey {
+        static let view = "browserView"
         static let sortField = "browserSortField"
         static let sortAscending = "browserSortAscending"
         static let detailsPosition = "browserDetailsPosition"
         static let rightDetailsWidth = "browserRightDetailsWidth"
         static let bottomDetailsHeight = "browserBottomDetailsHeight"
+        static let projectColors = "browserProjectColors"
     }
 
     private let loadTasks: @MainActor (TaskQuery) async throws -> [TaskRecord]
@@ -57,6 +62,7 @@ final class TaskBrowserViewModel: ObservableObject {
     private var loadGeneration = 0
     private var priorityValues = ["H", "M", "L", ""]
     private var hasLoadedMetadata = false
+    private let boardDefinition = BrowserBoardDefinition.standard
 
     init(client: any TaskBrowsing, defaults: UserDefaults = .standard) {
         loadTasks = { query in try await client.tasks(matching: query) }
@@ -64,6 +70,8 @@ final class TaskBrowserViewModel: ObservableObject {
         performMutation = { _ in throw TaskwarriorError.processFailed(exitCode: -1, message: "Mutations unavailable.") }
         undoMutation = { _ in throw TaskwarriorError.processFailed(exitCode: -1, message: "Undo unavailable.") }
         self.defaults = defaults
+        projectColors = Self.loadProjectColors(from: defaults)
+        view = defaults.string(forKey: DefaultsKey.view).flatMap(BrowserViewKind.init(rawValue:)) ?? .next
         sortField = defaults.string(forKey: DefaultsKey.sortField).flatMap(BrowserSortField.init(rawValue:)) ?? .urgency
         sortAscending = defaults.object(forKey: DefaultsKey.sortAscending) as? Bool ?? false
         detailsPosition = defaults.string(forKey: DefaultsKey.detailsPosition)
@@ -84,6 +92,8 @@ final class TaskBrowserViewModel: ObservableObject {
         self.performMutation = performMutation
         self.undoMutation = undoMutation
         self.defaults = defaults
+        projectColors = Self.loadProjectColors(from: defaults)
+        view = defaults.string(forKey: DefaultsKey.view).flatMap(BrowserViewKind.init(rawValue:)) ?? .next
         sortField = defaults.string(forKey: DefaultsKey.sortField).flatMap(BrowserSortField.init(rawValue:)) ?? .urgency
         sortAscending = defaults.object(forKey: DefaultsKey.sortAscending) as? Bool ?? false
         detailsPosition = defaults.string(forKey: DefaultsKey.detailsPosition)
@@ -98,6 +108,52 @@ final class TaskBrowserViewModel: ObservableObject {
 
     var tableSortOrder: [KeyPathComparator<TaskRecord>] {
         [sortField.comparator(ascending: sortAscending)]
+    }
+
+    func tasks(in column: BrowserBoardColumn) -> [TaskRecord] {
+        displayedTasks.filter { boardDefinition.column(containing: $0) == column }
+    }
+
+    var boardColumns: [BrowserBoardColumnDefinition] { boardDefinition.columns }
+
+    func projectColor(for project: String) -> ProjectColor? {
+        projectColors[project]
+    }
+
+    func setProjectColor(_ color: ProjectColor, for project: String) {
+        guard !project.isEmpty else { return }
+        projectColors[project] = color
+        persistProjectColors()
+    }
+
+    func selectBoardTask(_ uuid: UUID) {
+        selection = [uuid]
+    }
+
+    func canDropBoardTask(_ uuid: UUID, into column: BrowserBoardColumn) -> Bool {
+        guard let task = tasks.first(where: { $0.uuid == uuid }) else { return false }
+        return boardDefinition.dropPlan(for: task, into: column) != nil
+    }
+
+    func boardDropNeedsPriority(_ uuid: UUID, into column: BrowserBoardColumn) -> Bool {
+        guard let task = tasks.first(where: { $0.uuid == uuid }) else { return false }
+        return boardDefinition.dropPlan(for: task, into: column) == .choosePriority
+    }
+
+    @discardableResult
+    func moveBoardTask(
+        _ uuid: UUID,
+        into column: BrowserBoardColumn,
+        priority: String? = nil
+    ) async -> Bool {
+        guard let task = tasks.first(where: { $0.uuid == uuid }),
+              case let .mutations(mutations)? = boardDefinition.dropPlan(
+                  for: task,
+                  into: column,
+                  priority: priority
+              ) else { return false }
+        selection = [uuid]
+        return await mutate(mutations)
     }
 
     var selectedTask: TaskRecord? {
@@ -217,6 +273,7 @@ final class TaskBrowserViewModel: ObservableObject {
         do {
             try await undoMutation(receipt)
             undoReceipt = nil
+            hasLoadedMetadata = false
             await refresh()
         } catch {
             errorMessage = error.localizedDescription
@@ -226,20 +283,34 @@ final class TaskBrowserViewModel: ObservableObject {
 
     func selectView(_ value: BrowserViewKind) async {
         view = value
+        defaults.set(value.rawValue, forKey: DefaultsKey.view)
         selection.removeAll()
         await refresh()
     }
 
-    func selectProject(_ value: String?) async {
-        project = value
-        if value == nil { tag = nil }
+    func toggleProject(_ value: String) async {
+        if selectedProjects.contains(value) {
+            selectedProjects.remove(value)
+        } else {
+            selectedProjects.insert(value)
+        }
         selection.removeAll()
         await refresh()
     }
 
-    func selectTag(_ value: String?) async {
-        tag = value
-        if value == nil { project = nil }
+    func toggleTag(_ value: String) async {
+        if selectedTags.contains(value) {
+            selectedTags.remove(value)
+        } else {
+            selectedTags.insert(value)
+        }
+        selection.removeAll()
+        await refresh()
+    }
+
+    func clearFacetSelections() async {
+        selectedProjects.removeAll()
+        selectedTags.removeAll()
         selection.removeAll()
         await refresh()
     }
@@ -278,30 +349,59 @@ final class TaskBrowserViewModel: ObservableObject {
         defaults.set(height, forKey: DefaultsKey.bottomDetailsHeight)
     }
 
-    func refresh() async {
+    func refresh(reloadMetadata: Bool = false) async {
+        if reloadMetadata { hasLoadedMetadata = false }
         loadGeneration += 1
         let generation = loadGeneration
         isLoading = true
         errorMessage = nil
 
         do {
-            async let taskResult = loadTasks(TaskQuery(view: view, project: project, tag: tag, rawFilter: rawFilter))
+            async let taskResult = loadTasks(TaskQuery(
+                view: view,
+                projects: selectedProjects.sorted {
+                    $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+                },
+                tags: selectedTags.sorted {
+                    $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+                },
+                rawFilter: rawFilter
+            ))
             let metadata = hasLoadedMetadata ? nil : try? await loadMetadata()
             let result = try await taskResult
             guard generation == loadGeneration else { return }
             tasks = result
             if let metadata {
-                projects = Array(Set(projects + metadata.projects))
-                tags = Array(Set(tags + metadata.tags))
+                let active = Set(metadata.projects.filter { !$0.isEmpty })
+                activeProjects = active.sorted(by: Self.caseInsensitiveAscending)
+                completedProjects = Set(metadata.completedProjects.filter { !$0.isEmpty })
+                    .subtracting(active)
+                    .sorted(by: Self.caseInsensitiveAscending)
+                projects = Array(active.union(completedProjects))
+                tags = Array(Set(tags + Self.normalizedTags(metadata.tags)))
                 if !metadata.priorities.isEmpty {
                     priorityValues = metadata.priorities
                 }
                 hasLoadedMetadata = true
             }
-            projects = Array(Set(projects + result.map(\.project).filter { !$0.isEmpty }))
-                .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-            tags = Array(Set(tags + result.flatMap(\.tags)))
-                .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+            let visibleActiveProjects = result
+                .filter { $0.status != "completed" }
+                .map(\.project)
+                .filter { !$0.isEmpty }
+            let visibleCompletedProjects = result
+                .filter { $0.status == "completed" }
+                .map(\.project)
+                .filter { !$0.isEmpty }
+            activeProjects = Array(Set(activeProjects + visibleActiveProjects))
+                .sorted(by: Self.caseInsensitiveAscending)
+            completedProjects = Array(Set(completedProjects + visibleCompletedProjects))
+                .filter { !activeProjects.contains($0) }
+                .sorted(by: Self.caseInsensitiveAscending)
+            projects = Array(Set(projects + activeProjects + completedProjects))
+                .sorted(by: Self.caseInsensitiveAscending)
+            ensureProjectColors()
+            tags = Array(Set(tags + Self.normalizedTags(result.flatMap(\.tags))))
+                .sorted(by: Self.caseInsensitiveAscending)
             selection = selection.intersection(Set(result.map(\.id)))
             lastRefreshed = Date()
         } catch {
@@ -311,19 +411,90 @@ final class TaskBrowserViewModel: ObservableObject {
         if generation == loadGeneration { isLoading = false }
     }
 
+    private static func normalizedTags(_ values: [String]) -> [String] {
+        values
+            .flatMap { value in
+                value.split(separator: ",").map {
+                    $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }
+            .filter { !$0.isEmpty }
+    }
+
+    private static func caseInsensitiveAscending(_ lhs: String, _ rhs: String) -> Bool {
+        lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
+    }
+
+    private func ensureProjectColors() {
+        var addedColor = false
+        for project in projects where projectColors[project] == nil {
+            projectColors[project] = .random()
+            addedColor = true
+        }
+        if addedColor { persistProjectColors() }
+    }
+
+    private func persistProjectColors() {
+        guard let data = try? JSONEncoder().encode(projectColors) else { return }
+        defaults.set(data, forKey: DefaultsKey.projectColors)
+    }
+
+    private static func loadProjectColors(from defaults: UserDefaults) -> [String: ProjectColor] {
+        guard let data = defaults.data(forKey: DefaultsKey.projectColors),
+              let colors = try? JSONDecoder().decode([String: ProjectColor].self, from: data) else {
+            return [:]
+        }
+        return colors
+    }
+
     @discardableResult
     private func mutate(_ mutation: TaskMutation) async -> Bool {
+        await mutate([mutation])
+    }
+
+    @discardableResult
+    private func mutate(_ mutations: [TaskMutation]) async -> Bool {
+        guard !mutations.isEmpty else { return false }
         guard !isMutating else { return false }
         isMutating = true
         errorMessage = nil
+        var receipts: [TaskMutationReceipt] = []
         do {
-            undoReceipt = try await performMutation(mutation)
+            for mutation in mutations {
+                receipts.append(try await performMutation(mutation))
+            }
+            undoReceipt = Self.combinedReceipt(receipts)
+            hasLoadedMetadata = false
             await refresh()
         } catch {
-            errorMessage = error.localizedDescription
+            let mutationError = error.localizedDescription
+            if !receipts.isEmpty {
+                undoReceipt = Self.combinedReceipt(receipts)
+                hasLoadedMetadata = false
+                await refresh()
+            }
+            errorMessage = mutationError
         }
         isMutating = false
         return errorMessage == nil
+    }
+
+    private static func combinedReceipt(_ receipts: [TaskMutationReceipt]) -> TaskMutationReceipt? {
+        guard !receipts.isEmpty else { return nil }
+        var changes: [UUID: TaskChange] = [:]
+        for receipt in receipts {
+            for (uuid, change) in receipt.changes {
+                if let existing = changes[uuid] {
+                    changes[uuid] = TaskChange(before: existing.before, after: change.after)
+                } else {
+                    changes[uuid] = change
+                }
+            }
+        }
+        return TaskMutationReceipt(
+            changes: changes,
+            feedback: receipts.map(\.feedback).filter { !$0.isEmpty }.joined(separator: "\n")
+        )
     }
 
     private func compare(_ lhs: TaskRecord, _ rhs: TaskRecord) -> Bool {

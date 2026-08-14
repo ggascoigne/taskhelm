@@ -7,6 +7,27 @@ import TWMacCore
 @MainActor
 @Suite("Quick Capture regressions", .serialized)
 struct QuickCaptureRegressionTests {
+    @Test func successfulCreationAnnouncesThatBrowserDataChanged() async {
+        let client = RecordingTaskwarriorClient()
+        let notification = Notification.Name("TWMacTaskCreated")
+        var receivedCount = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: notification,
+            object: nil,
+            queue: nil
+        ) { _ in
+            receivedCount += 1
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        let model = QuickCaptureViewModel(client: client, onCancel: {}, onCreated: {})
+        model.prepare(description: "New project task")
+        model.draft.project = "new-project"
+
+        await model.submit()
+
+        #expect(receivedCount == 1)
+    }
+
     @Test func commandBRequestsTaskBrowser() throws {
         _ = NSApplication.shared
         let panel = QuickCapturePanel(

@@ -42,6 +42,7 @@ final class QuickCaptureViewModel: ObservableObject {
         errorMessage = nil
         do {
             _ = try await client.createTask(from: draft)
+            NotificationCenter.default.post(name: .taskwarriorTaskCreated, object: nil)
             onCreated()
         } catch {
             errorMessage = error.localizedDescription

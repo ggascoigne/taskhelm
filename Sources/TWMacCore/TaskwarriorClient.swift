@@ -76,27 +76,34 @@ public struct TaskwarriorClient<Runner: ProcessRunning>: Sendable {
 
     public func metadata() async throws -> TaskwarriorMetadata {
         async let projectsResult = run(arguments: ["+PENDING", "_unique", "project"])
+        async let completedProjectsResult = run(arguments: ["status:completed", "_unique", "project"])
         async let tagsResult = run(arguments: ["+PENDING", "_unique", "tags"])
         async let prioritiesResult = run(arguments: ["_get", "rc.uda.priority.values"])
         async let contextResult = run(arguments: ["_get", "rc.context"])
 
         let projects = try await projectsResult
+        let completedProjects = try await completedProjectsResult
         let tags = try await tagsResult
         let priorities = try await prioritiesResult
         let context = try await contextResult
 
         try requireSuccess(projects)
+        try requireSuccess(completedProjects)
         try requireSuccess(tags)
         try requireSuccess(priorities)
 
         return TaskwarriorMetadata(
             projects: Self.lines(in: projects.standardOutput),
-            tags: Self.lines(in: tags.standardOutput).filter { $0 != $0.uppercased() },
+            tags: Self.lines(in: tags.standardOutput)
+                .flatMap { $0.split(separator: ",") }
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty && $0 != $0.uppercased() },
             priorities: priorities.standardOutput
                 .split(separator: ",", omittingEmptySubsequences: true)
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty },
-            context: context.exitCode == 0 ? context.standardOutput.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty : nil
+            context: context.exitCode == 0 ? context.standardOutput.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty : nil,
+            completedProjects: Self.lines(in: completedProjects.standardOutput)
         )
     }
 
@@ -120,6 +127,13 @@ public struct TaskwarriorClient<Runner: ProcessRunning>: Sendable {
             filter = try Self.filterArguments(in: result.standardOutput).filter {
                 !$0.lowercased().hasPrefix("limit:")
             }
+        case .board:
+            let result = try await run(arguments: ["_get", "rc.report.next.filter"])
+            try requireSuccess(result)
+            let nextFilter = try Self.filterArguments(in: result.standardOutput).filter {
+                !$0.lowercased().hasPrefix("limit:")
+            }
+            filter = ["("] + nextFilter + ["or", "status:completed", ")"]
         case .waiting:
             filter = ["status:waiting"]
         case .completed:
@@ -127,12 +141,8 @@ public struct TaskwarriorClient<Runner: ProcessRunning>: Sendable {
         }
 
         filter.append("-PARENT")
-        if let project = query.project, !project.isEmpty {
-            filter.append("project:\(project)")
-        }
-        if let tag = query.tag, !tag.isEmpty {
-            filter.append("+\(tag)")
-        }
+        filter.append(contentsOf: Self.anyFacet(query.projects) { "project:\($0)" })
+        filter.append(contentsOf: Self.anyFacet(query.tags) { "+\($0)" })
         filter.append(contentsOf: try Self.filterArguments(in: query.rawFilter))
 
         let result = try await run(arguments: ["rc.json.array=on"] + filter + ["export"])
@@ -142,6 +152,14 @@ public struct TaskwarriorClient<Runner: ProcessRunning>: Sendable {
         } catch {
             throw TaskwarriorError.invalidExport(error.localizedDescription)
         }
+    }
+
+    private static func anyFacet(_ values: [String], token: (String) -> String) -> [String] {
+        let tokens = values.filter { !$0.isEmpty }.map(token)
+        guard tokens.count > 1 else { return tokens }
+        return ["("] + tokens.enumerated().flatMap { index, value in
+            index == 0 ? [value] : ["or", value]
+        } + [")"]
     }
 
     public func perform(_ mutation: TaskMutation) async throws -> TaskMutationReceipt {
@@ -277,6 +295,7 @@ public struct TaskwarriorClient<Runner: ProcessRunning>: Sendable {
             )
         case let .complete(value): uuids = [value]; command = ["done"]
         case let .completeMany(values): uuids = values; command = ["done"]
+        case let .reopen(value): uuids = [value]; command = ["modify", "status:pending"]
         case let .start(value): uuids = [value]; command = ["start"]
         case let .startMany(values): uuids = values; command = ["start"]
         case let .stop(value): uuids = [value]; command = ["stop"]

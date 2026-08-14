@@ -143,20 +143,45 @@ public enum BrowserViewKind: String, CaseIterable, Codable, Sendable {
     case next
     case waiting
     case completed
+    case board
 
-    public var title: String { rawValue.capitalized }
+    public var title: String {
+        switch self {
+        case .board: "Kanban"
+        default: rawValue.capitalized
+        }
+    }
 }
 
 public struct TaskQuery: Equatable, Sendable {
     public var view: BrowserViewKind
-    public var project: String?
-    public var tag: String?
+    public var projects: [String]
+    public var tags: [String]
     public var rawFilter: String
 
-    public init(view: BrowserViewKind = .next, project: String? = nil, tag: String? = nil, rawFilter: String = "") {
+    public init(
+        view: BrowserViewKind = .next,
+        projects: [String] = [],
+        tags: [String] = [],
+        rawFilter: String = ""
+    ) {
         self.view = view
-        self.project = project
-        self.tag = tag
+        self.projects = projects
+        self.tags = tags
         self.rawFilter = rawFilter
+    }
+
+    public init(
+        view: BrowserViewKind = .next,
+        project: String?,
+        tag: String? = nil,
+        rawFilter: String = ""
+    ) {
+        self.init(
+            view: view,
+            projects: project.map { [$0] } ?? [],
+            tags: tag.map { [$0] } ?? [],
+            rawFilter: rawFilter
+        )
     }
 }
