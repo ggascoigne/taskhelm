@@ -44,6 +44,7 @@ struct TaskBrowserRootView: View {
 
     var body: some View {
         TaskBrowserView(model: model)
+            .background(TaskBrowserWindowMarker())
             .onExitCommand {
                 dismissWindow(id: "task-browser")
             }
@@ -84,7 +85,7 @@ struct TaskBrowserView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
-            guard (notification.object as? NSWindow)?.title == "Task Browser" else { return }
+            guard (notification.object as? NSWindow)?.identifier == .taskBrowserWindow else { return }
             Task { await model.refresh() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .taskwarriorTaskCreated)) { _ in

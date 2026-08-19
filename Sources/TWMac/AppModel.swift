@@ -98,6 +98,15 @@ final class AppModel: ObservableObject {
 
     func showTaskBrowser() {
         capturePanel?.dismiss()
+        if let window = TaskBrowserWindowPlacement.browserWindow() {
+            if window.isMiniaturized {
+                window.deminiaturize(nil)
+            }
+            TaskBrowserWindowPlacement.moveToActiveDesktop(window)
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            return
+        }
         NSApp.activate(ignoringOtherApps: true)
         taskBrowserPresenter?()
     }

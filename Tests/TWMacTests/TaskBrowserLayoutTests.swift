@@ -8,6 +8,21 @@ import UniformTypeIdentifiers
 @MainActor
 @Suite("Task Browser layout")
 struct TaskBrowserLayoutTests {
+    @Test func configuresExistingBrowserWindowToMoveToTheActiveDesktop() {
+        let behavior = TaskBrowserWindowPlacement.activeDesktopBehavior(
+            from: [.managed, .canJoinAllSpaces]
+        )
+
+        #expect(behavior.contains(.managed))
+        #expect(behavior.contains(.moveToActiveSpace))
+        #expect(!behavior.contains(.canJoinAllSpaces))
+    }
+
+    @Test func findsBrowserWindowByStableIdentityAfterNavigationTitleChanges() {
+        #expect(TaskBrowserWindowPlacement.isBrowserWindow(identifier: .taskBrowserWindow))
+        #expect(!TaskBrowserWindowPlacement.isBrowserWindow(identifier: nil))
+    }
+
     @Test(arguments: BrowserDetailsPosition.allCases)
     func detailsSplitFillsTheBrowserHeight(position: BrowserDetailsPosition) async throws {
         let defaults = UserDefaults(suiteName: "TaskBrowserLayoutTests-\(UUID().uuidString)")!
