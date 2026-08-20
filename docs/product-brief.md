@@ -1,8 +1,8 @@
-# TW Mac Product Brief
+# TaskHelm Product Brief
 
 ## Product intent
 
-TW Mac is a clean native Mac interface for experienced Taskwarrior users. It improves capture and browsing without becoming a separate task manager: Taskwarrior remains authoritative for task data, configuration, contexts, hooks, urgency, recurrence, synchronization, and user-defined attributes.
+TaskHelm is a clean native Mac interface for experienced Taskwarrior users. It improves capture and browsing without becoming a separate task manager: Taskwarrior remains authoritative for task data, configuration, contexts, hooks, urgency, recurrence, synchronization, and user-defined attributes.
 
 The app is initially built for Guy's workflow, with enough configuration and error handling to remain useful to other experienced Taskwarrior users. Public release timing is deliberately undefined; the app should be dogfooded before it is packaged for others.
 
@@ -13,7 +13,7 @@ The app is initially built for Guy's workflow, with enough configuration and err
 - Menu-bar resident, with optional Launch at Login.
 - Direct distribution outside the Mac App Store; signing and notarization are expected before sharing.
 - MIT/open-source release posture.
-- `TW Mac` and `tw-mac` are working identities; public branding is deferred.
+- The product name is `TaskHelm`; lowercase identifiers use `taskhelm`.
 - No app-owned networking in the initial product: no telemetry, crash uploads, update checks, or cloud service.
 
 ## Taskwarrior integration
@@ -154,7 +154,7 @@ The app does not install Taskwarrior, create a beginner workflow, or provide a T
 - Saved filters.
 - Multiple Taskwarrior environments or profiles.
 - Source application, URL, file, rich-text, and image capture.
-- Public branding, notarized releases, and Homebrew distribution.
+- Notarized releases and Homebrew distribution.
 - Intel Mac and older macOS support.
 - Automatic synchronization.
 - An explicit in-app Taskwarrior Sync command.

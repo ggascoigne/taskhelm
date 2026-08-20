@@ -29,7 +29,7 @@ That data model naturally supports a chronological notes/log UI. It does **not**
 
 **Visible interaction pattern:** Tasks remain the primary list; secondary detail is revealed beside/below the list and annotations are added without navigating into a document editor.
 
-**What TW Mac should borrow:** Keep Notes in the browser's task inspector, with selection preserved and an always-nearby add affordance. This is the best precedent for an annotations-first implementation.
+**What TaskHelm should borrow:** Keep Notes in the browser's task inspector, with selection preserved and an always-nearby add affordance. This is the best precedent for an annotations-first implementation.
 
 ### 2. taskwarrior-web-portal — annotations presented as Notes
 
@@ -37,7 +37,7 @@ That data model naturally supports a chronological notes/log UI. It does **not**
 
 **Visible interaction pattern:** Users see task-native annotations through familiar “Notes” language, with both a quick append path and a combined edit-and-note path. Storage semantics do not leak into the primary label.
 
-**What TW Mac should borrow:** Call the inspector section **Notes**, describe each entry as a note, and keep timestamps visually secondary. Offer a lightweight composer directly in the inspector; structured task edits can remain a separate Save/Cancel flow.
+**What TaskHelm should borrow:** Call the inspector section **Notes**, describe each entry as a note, and keep timestamps visually secondary. Offer a lightweight composer directly in the inspector; structured task edits can remain a separate Save/Cancel flow.
 
 ### 3. taskn — one implicit Markdown sidecar per task
 
@@ -45,9 +45,9 @@ That data model naturally supports a chronological notes/log UI. It does **not**
 
 **Visible interaction pattern:** Each task implicitly owns exactly one note. The user never manages filenames or a list of note objects; first edit can lazily create the file.
 
-**What TW Mac could borrow later:** If annotations prove too fragmented for meeting notes, checklists, or research, add one “Open note” row per task and lazy-create a UUID-keyed Markdown file.
+**What TaskHelm could borrow later:** If annotations prove too fragmented for meeting notes, checklists, or research, add one “Open note” row per task and lazy-create a UUID-keyed Markdown file.
 
-**Cost:** The note is not Taskwarrior data and will not follow Taskwarrior sync. TW Mac would own file backup, conflict handling, orphan cleanup, task deletion behavior, and discoverability outside the app.
+**Cost:** The note is not Taskwarrior data and will not follow Taskwarrior sync. TaskHelm would own file backup, conflict handling, orphan cleanup, task deletion behavior, and discoverability outside the app.
 
 ### 4. Taskchamp — native task detail leading to an Obsidian-backed Markdown editor
 
@@ -55,7 +55,7 @@ That data model naturally supports a chronological notes/log UI. It does **not**
 
 **Visible interaction pattern:** The task form stays structured and compact. Long-form writing is a separate focused surface, opened by one contextual action; edit and preview modes are distinct.
 
-**What TW Mac should borrow if it adds Markdown:** Use a focused sheet/window rather than inserting a large editor into the compact inspector. Offer edit/preview, not a permanently rich text field.
+**What TaskHelm should borrow if it adds Markdown:** Use a focused sheet/window rather than inserting a large editor into the compact inspector. Offer edit/preview, not a permanently rich text field.
 
 **Cost:** This is explicitly an external-file integration. Its source includes settings/paywall/error branches and file/deep-link handling, illustrating how much product surface a “simple note” adds.
 
@@ -65,7 +65,7 @@ That data model naturally supports a chronological notes/log UI. It does **not**
 
 **Visible interaction pattern:** Annotations become a heterogeneous “linked resources” list rather than only prose: note, URL, PDF, image, spreadsheet, and command can each have an action.
 
-**What TW Mac should borrow now:** Detect URLs in annotation text and make them clickable. A later linked-resources section could add file-type icons and Open/Edit actions without pretending the files are synced task data.
+**What TaskHelm should borrow now:** Detect URLs in annotation text and make them clickable. A later linked-resources section could add file-type icons and Open/Edit actions without pretending the files are synced task data.
 
 **Cost:** Paths are fragile across machines, and the Taskwarrior annotation is only a pointer or marker—not the content.
 
@@ -73,11 +73,11 @@ That data model naturally supports a chronological notes/log UI. It does **not**
 
 **Explicit behavior:** Taskwiki synchronizes Vimwiki/Markdown-style checklist lines with Taskwarrior while ordinary surrounding prose and lists remain document content. Its task info split shows annotations inline under the task plus a modification history ([project README](https://github.com/tools-life/taskwiki#how-it-works)).
 
-**Visible interaction pattern:** Notes provide the workspace and tasks are embedded in context, reversing TW Mac's current task-browser hierarchy.
+**Visible interaction pattern:** Notes provide the workspace and tasks are embedded in context, reversing TaskHelm's current task-browser hierarchy.
 
 **Assessment:** Interesting precedent for project planning, but it is a document/workspace product, not merely “notes on a task.” Following it now would greatly expand scope.
 
-## Options for TW Mac
+## Options for TaskHelm
 
 | Option | UX shape | Sync/portability | Complexity | Recommendation |
 | --- | --- | --- | --- | --- |

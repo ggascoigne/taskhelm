@@ -1,5 +1,5 @@
 import Foundation
-import TWMacCore
+import TaskHelmCore
 
 enum BrowserBoardColumn: String, CaseIterable, Identifiable {
     case backlog

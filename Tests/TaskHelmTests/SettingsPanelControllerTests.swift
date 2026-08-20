@@ -2,7 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 import SwiftUI
 import Testing
-@testable import TWMac
+@testable import TaskHelm
 
 @MainActor
 @Suite("Settings panel", .serialized)

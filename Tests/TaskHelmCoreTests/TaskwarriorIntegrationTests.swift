@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import TWMacCore
+@testable import TaskHelmCore
 
 @Suite("Taskwarrior integration")
 struct TaskwarriorIntegrationTests {
@@ -9,7 +9,7 @@ struct TaskwarriorIntegrationTests {
         guard FileManager.default.isExecutableFile(atPath: taskURL.path) else { return }
 
         let dataURL = FileManager.default.temporaryDirectory
-            .appending(path: "tw-mac-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+            .appending(path: "taskhelm-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: dataURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dataURL) }
 
@@ -56,7 +56,7 @@ struct TaskwarriorIntegrationTests {
         let taskURL = URL(fileURLWithPath: "/opt/homebrew/bin/task")
         guard FileManager.default.isExecutableFile(atPath: taskURL.path) else { return }
         let dataURL = FileManager.default.temporaryDirectory
-            .appending(path: "tw-mac-mutation-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+            .appending(path: "taskhelm-mutation-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: dataURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dataURL) }
         let client = TaskwarriorClient(
@@ -72,13 +72,13 @@ struct TaskwarriorIntegrationTests {
         let edit = try await client.perform(
             .edit(
                 created.uuid,
-                TaskEdits(description: "After", project: "TWMac", tags: ["focus"], due: "tomorrow", priority: "H")
+                TaskEdits(description: "After", project: "TaskHelm", tags: ["focus"], due: "tomorrow", priority: "H")
             )
         )
         let uuidFilter = created.uuid.uuidString.lowercased()
         var tasks = try await client.tasks(matching: TaskQuery(rawFilter: uuidFilter))
         #expect(tasks.first?.description == "After")
-        #expect(tasks.first?.project == "TWMac")
+        #expect(tasks.first?.project == "TaskHelm")
         #expect(tasks.first?.priority == "H")
 
         try await client.undo(edit)
@@ -155,7 +155,7 @@ struct TaskwarriorIntegrationTests {
         let taskURL = URL(fileURLWithPath: "/opt/homebrew/bin/task")
         guard FileManager.default.isExecutableFile(atPath: taskURL.path) else { return }
         let dataURL = FileManager.default.temporaryDirectory
-            .appending(path: "tw-mac-bulk-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+            .appending(path: "taskhelm-bulk-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: dataURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dataURL) }
         let client = TaskwarriorClient(
@@ -196,7 +196,7 @@ struct TaskwarriorIntegrationTests {
         let taskURL = URL(fileURLWithPath: "/opt/homebrew/bin/task")
         guard FileManager.default.isExecutableFile(atPath: taskURL.path) else { return }
         let dataURL = FileManager.default.temporaryDirectory
-            .appending(path: "tw-mac-bulk-edit-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+            .appending(path: "taskhelm-bulk-edit-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: dataURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dataURL) }
         let client = TaskwarriorClient(
@@ -214,11 +214,11 @@ struct TaskwarriorIntegrationTests {
         let receipt = try await client.perform(
             .bulkEdit(
                 uuids,
-                BulkTaskEdits(project: "TWMac", tagsToAdd: ["focus"], tagsToRemove: ["remove"])
+                BulkTaskEdits(project: "TaskHelm", tagsToAdd: ["focus"], tagsToRemove: ["remove"])
             )
         )
         var tasks = try await client.tasks(matching: TaskQuery())
-        #expect(tasks.allSatisfy { $0.project == "TWMac" })
+        #expect(tasks.allSatisfy { $0.project == "TaskHelm" })
         #expect(tasks.allSatisfy { $0.tags.contains("focus") })
         #expect(tasks.allSatisfy { !$0.tags.contains("remove") })
 

@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 @main
-struct TWMacApp: App {
+struct TaskHelmApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model = AppModel()
 
@@ -14,8 +14,11 @@ struct TWMacApp: App {
         }
         .menuBarExtraStyle(.menu)
 
-        Window("Task Browser", id: "task-browser") {
-            TaskBrowserRootView(settings: model.settings)
+        Window("TaskHelm — Task Browser", id: "task-browser") {
+            TaskBrowserRootView(
+                settings: model.settings,
+                onAddTask: { model.showQuickCapture(includeSelectedText: false) }
+            )
                 .frame(minWidth: 960, minHeight: 600)
         }
         .commands {
@@ -42,7 +45,7 @@ private struct MenuBarLabel: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Label("TW Mac", systemImage: "checkmark.circle")
+        Label("TaskHelm", systemImage: "checkmark.circle")
             .onAppear {
                 model.configureTaskBrowserPresenter {
                     openWindow(id: "task-browser")
@@ -80,7 +83,7 @@ private struct MenuBarContent: View {
 
         Divider()
 
-        Button("Quit TW Mac") {
+        Button("Quit TaskHelm") {
             NSApp.terminate(nil)
         }
         .keyboardShortcut("q")

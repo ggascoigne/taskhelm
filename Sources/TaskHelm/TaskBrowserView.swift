@@ -1,13 +1,35 @@
 import AppKit
 import SwiftUI
-import TWMacCore
+import TaskHelmCore
 import UniformTypeIdentifiers
+
+enum BrowserBoardLayout {
+    static let minimumColumnWidth: CGFloat = 200
+    static let columnSpacing: CGFloat = 10
+    static let contentPadding: CGFloat = 10
+
+    static func columnWidth(availableWidth: CGFloat, columnCount: Int) -> CGFloat {
+        guard columnCount > 0 else { return 0 }
+        let chromeWidth = contentPadding * 2 + columnSpacing * CGFloat(columnCount - 1)
+        return max(minimumColumnWidth, (availableWidth - chromeWidth) / CGFloat(columnCount))
+    }
+
+    static func contentWidth(availableWidth: CGFloat, columnCount: Int) -> CGFloat {
+        guard columnCount > 0 else { return 0 }
+        return columnWidth(availableWidth: availableWidth, columnCount: columnCount)
+            * CGFloat(columnCount)
+            + columnSpacing * CGFloat(columnCount - 1)
+            + contentPadding * 2
+    }
+}
 
 struct TaskBrowserRootView: View {
     @StateObject private var model: TaskBrowserViewModel
     @Environment(\.dismissWindow) private var dismissWindow
+    private let onAddTask: () -> Void
 
-    init(settings: AppSettings) {
+    init(settings: AppSettings, onAddTask: @escaping () -> Void) {
+        self.onAddTask = onAddTask
         _model = StateObject(
             wrappedValue: TaskBrowserViewModel(
                 loadTasks: { query in
@@ -43,7 +65,7 @@ struct TaskBrowserRootView: View {
     }
 
     var body: some View {
-        TaskBrowserView(model: model)
+        TaskBrowserView(model: model, onAddTask: onAddTask)
             .background(TaskBrowserWindowMarker())
             .onExitCommand {
                 dismissWindow(id: "task-browser")
@@ -53,6 +75,7 @@ struct TaskBrowserRootView: View {
 
 struct TaskBrowserView: View {
     @ObservedObject var model: TaskBrowserViewModel
+    var onAddTask: () -> Void = {}
     @State private var confirmsDelete = false
     @State private var resizeStart: CGFloat?
     @State private var boardDropTarget: BrowserBoardColumn?
@@ -71,7 +94,7 @@ struct TaskBrowserView: View {
         } detail: {
             browserContent
         }
-        .navigationTitle(model.view.title)
+        .navigationTitle("TaskHelm — \(model.view.title)")
         .toolbar { browserToolbar }
         .focusedSceneValue(\.taskBrowserCommands, commandActions)
         .task {
@@ -79,7 +102,7 @@ struct TaskBrowserView: View {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(5))
                 guard !Task.isCancelled else { break }
-                if NSApp.windows.contains(where: { $0.title == "Task Browser" && $0.isVisible }) {
+                if TaskBrowserWindowPlacement.browserWindow()?.isVisible == true {
                     await model.refresh()
                 }
             }
@@ -282,15 +305,18 @@ struct TaskBrowserView: View {
 
     private var taskBoard: some View {
         GeometryReader { geometry in
-            let columnWidth = max(200, (geometry.size.width - 40) / 4)
+            let columnWidth = BrowserBoardLayout.columnWidth(
+                availableWidth: geometry.size.width,
+                columnCount: model.boardColumns.count
+            )
             ScrollView(.horizontal) {
-                HStack(alignment: .top, spacing: 10) {
+                HStack(alignment: .top, spacing: BrowserBoardLayout.columnSpacing) {
                     ForEach(model.boardColumns) { column in
                         boardColumn(column)
                             .frame(width: columnWidth)
                     }
                 }
-                .padding(10)
+                .padding(BrowserBoardLayout.contentPadding)
                 .frame(minHeight: geometry.size.height, alignment: .top)
             }
         }
@@ -413,6 +439,12 @@ struct TaskBrowserView: View {
     @ToolbarContentBuilder
     private var browserToolbar: some ToolbarContent {
         ToolbarItemGroup {
+            Button(action: onAddTask) {
+                Label("New Task", systemImage: "plus")
+                    .labelStyle(.iconOnly)
+            }
+            .help("New Task")
+
             if let errorMessage = model.errorMessage, !model.tasks.isEmpty {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)

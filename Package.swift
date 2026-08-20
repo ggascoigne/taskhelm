@@ -3,17 +3,17 @@
 import PackageDescription
 
 let package = Package(
-    name: "TWMac",
+    name: "TaskHelm",
     platforms: [.macOS(.v26)],
     products: [
-        .library(name: "TWMacCore", targets: ["TWMacCore"]),
-        .executable(name: "TWMac", targets: ["TWMac"]),
+        .library(name: "TaskHelmCore", targets: ["TaskHelmCore"]),
+        .executable(name: "TaskHelm", targets: ["TaskHelm"]),
     ],
     targets: [
-        .target(name: "TWMacCore"),
-        .executableTarget(name: "TWMac", dependencies: ["TWMacCore"]),
-        .testTarget(name: "TWMacCoreTests", dependencies: ["TWMacCore"]),
-        .testTarget(name: "TWMacTests", dependencies: ["TWMac"]),
+        .target(name: "TaskHelmCore"),
+        .executableTarget(name: "TaskHelm", dependencies: ["TaskHelmCore"]),
+        .testTarget(name: "TaskHelmCoreTests", dependencies: ["TaskHelmCore"]),
+        .testTarget(name: "TaskHelmTests", dependencies: ["TaskHelm"]),
     ],
     swiftLanguageModes: [.v5]
 )

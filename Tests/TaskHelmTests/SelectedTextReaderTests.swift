@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import TWMac
+@testable import TaskHelm
 
 @Suite("Selected text permission")
 struct SelectedTextReaderTests {

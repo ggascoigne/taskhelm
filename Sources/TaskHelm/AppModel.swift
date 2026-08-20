@@ -1,6 +1,6 @@
 import AppKit
 import Combine
-import TWMacCore
+import TaskHelmCore
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -74,9 +74,9 @@ final class AppModel: ObservableObject {
             .store(in: &cancellables)
     }
 
-    func showQuickCapture(description: String = "") {
+    func showQuickCapture(description: String = "", includeSelectedText: Bool = true) {
         let latencyTrace = QuickCaptureLatency.begin()
-        guard description.isEmpty, settings.capturesSelectedText else {
+        guard includeSelectedText, description.isEmpty, settings.capturesSelectedText else {
             capturePanel?.present(description: description) {
                 _ = QuickCaptureLatency.finish(latencyTrace, selectionLookup: nil)
             }

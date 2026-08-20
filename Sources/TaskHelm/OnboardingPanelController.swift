@@ -2,22 +2,25 @@ import AppKit
 import SwiftUI
 
 @MainActor
-final class SettingsPanelController: NSWindowController {
-    static let contentSize = NSSize(width: 560, height: 500)
+final class OnboardingPanelController: NSWindowController {
+    static let contentSize = NSSize(width: 640, height: 620)
 
     private let settings: AppSettings
     private let launchAtLogin: LaunchAtLoginController
     private let requestAccessibilityPermission: () -> Void
+    private let onComplete: () -> Void
     private var shortcutError: String?
 
     init(
         settings: AppSettings,
         launchAtLogin: LaunchAtLoginController,
-        requestAccessibilityPermission: @escaping () -> Void
+        requestAccessibilityPermission: @escaping () -> Void,
+        onComplete: @escaping () -> Void
     ) {
         self.settings = settings
         self.launchAtLogin = launchAtLogin
         self.requestAccessibilityPermission = requestAccessibilityPermission
+        self.onComplete = onComplete
         super.init(window: Self.makePanel())
         updateContent()
     }
@@ -29,10 +32,8 @@ final class SettingsPanelController: NSWindowController {
 
     func present() {
         guard let panel = window as? NSPanel else { return }
-        let mouseLocation = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first { NSMouseInRect(mouseLocation, $0.frame, false) } ?? NSScreen.main
-        if let visibleFrame = screen?.visibleFrame {
-            Self.center(panel, in: visibleFrame)
+        if let visibleFrame = NSScreen.main?.visibleFrame {
+            SettingsPanelController.center(panel, in: visibleFrame)
         } else {
             panel.center()
         }
@@ -53,7 +54,7 @@ final class SettingsPanelController: NSWindowController {
             backing: .buffered,
             defer: false
         )
-        panel.title = "TW Mac Settings"
+        panel.title = "Welcome to TaskHelm"
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.hidesOnDeactivate = false
@@ -62,23 +63,21 @@ final class SettingsPanelController: NSWindowController {
         return panel
     }
 
-    static func center(_ panel: NSPanel, in visibleFrame: NSRect) {
-        panel.setFrameOrigin(
-            NSPoint(
-                x: visibleFrame.midX - panel.frame.width / 2,
-                y: visibleFrame.midY - panel.frame.height / 2
+    private func updateContent() {
+        contentViewController = NSHostingController(
+            rootView: OnboardingView(
+                settings: settings,
+                launchAtLogin: launchAtLogin,
+                shortcutError: shortcutError,
+                requestAccessibilityPermission: requestAccessibilityPermission,
+                complete: { [weak self] in self?.finish() }
             )
         )
     }
 
-    private func updateContent() {
-        contentViewController = NSHostingController(
-            rootView: SettingsView(
-                settings: settings,
-                launchAtLogin: launchAtLogin,
-                shortcutError: shortcutError,
-                requestAccessibilityPermission: requestAccessibilityPermission
-            )
-        )
+    private func finish() {
+        settings.completeOnboarding()
+        window?.orderOut(nil)
+        onComplete()
     }
 }

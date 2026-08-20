@@ -2,9 +2,22 @@ import SwiftUI
 
 struct QuickCaptureView: View {
     @ObservedObject var model: QuickCaptureViewModel
+    var onShowTaskBrowser: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("TaskHelm — New Task")
+                    .font(.headline)
+
+                Spacer()
+
+                Button(action: onShowTaskBrowser) {
+                    Label("Browse Tasks", systemImage: "macwindow")
+                }
+                .help("Browse Tasks (⌘B)")
+            }
+
             HStack(spacing: 8) {
                 Image(systemName: "checkmark.circle")
                     .foregroundStyle(.secondary)
@@ -54,6 +67,7 @@ struct QuickCaptureView: View {
         }
         .padding(18)
         .frame(width: 660)
+        .background(Color(nsColor: .windowBackgroundColor))
         .onExitCommand(perform: model.cancel)
     }
 

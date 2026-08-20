@@ -1,5 +1,5 @@
 import Testing
-@testable import TWMacCore
+@testable import TaskHelmCore
 
 @Suite("Selected text normalization")
 struct SelectedTextNormalizerTests {

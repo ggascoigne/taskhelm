@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import TWMacCore
+@testable import TaskHelmCore
 
 @Suite("Taskwarrior client")
 struct TaskwarriorClientTests {
@@ -224,7 +224,7 @@ struct TaskwarriorClientTests {
         )
 
         let tasks = try await client.tasks(
-            matching: TaskQuery(view: .next, project: "TW Mac", tag: "focus", rawFilter: "priority:H or due:today")
+            matching: TaskQuery(view: .next, project: "TaskHelm", tag: "focus", rawFilter: "priority:H or due:today")
         )
 
         #expect(tasks.first?.uuid == uuid)
@@ -240,7 +240,7 @@ struct TaskwarriorClientTests {
             ")",
             "-WAITING",
             "-PARENT",
-            "project:TW Mac",
+            "project:TaskHelm",
             "+focus",
             "priority:H",
             "or",

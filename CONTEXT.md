@@ -1,4 +1,4 @@
-# Taskwarrior for Mac
+# TaskHelm Domain Language
 
 A native Mac interface for working with tasks whose behavior and persistence remain owned by Taskwarrior.
 

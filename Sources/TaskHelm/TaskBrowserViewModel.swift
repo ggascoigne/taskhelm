@@ -1,5 +1,5 @@
 import Foundation
-import TWMacCore
+import TaskHelmCore
 
 enum BrowserSortField: String, CaseIterable {
     case urgency
@@ -51,6 +51,7 @@ final class TaskBrowserViewModel: ObservableObject {
         static let rightDetailsWidth = "browserRightDetailsWidth"
         static let bottomDetailsHeight = "browserBottomDetailsHeight"
         static let projectColors = "browserProjectColors"
+        static let userSelectedProjectColors = "browserUserSelectedProjectColors"
     }
 
     private let loadTasks: @MainActor (TaskQuery) async throws -> [TaskRecord]
@@ -58,6 +59,7 @@ final class TaskBrowserViewModel: ObservableObject {
     private let performMutation: @MainActor (TaskMutation) async throws -> TaskMutationReceipt
     private let undoMutation: @MainActor (TaskMutationReceipt) async throws -> Void
     private let defaults: UserDefaults
+    private var userSelectedProjectColors: Set<String>
     private var filterTask: Task<Void, Never>?
     private var loadGeneration = 0
     private var priorityValues = ["H", "M", "L", ""]
@@ -71,6 +73,7 @@ final class TaskBrowserViewModel: ObservableObject {
         undoMutation = { _ in throw TaskwarriorError.processFailed(exitCode: -1, message: "Undo unavailable.") }
         self.defaults = defaults
         projectColors = Self.loadProjectColors(from: defaults)
+        userSelectedProjectColors = Self.loadUserSelectedProjectColors(from: defaults)
         view = defaults.string(forKey: DefaultsKey.view).flatMap(BrowserViewKind.init(rawValue:)) ?? .next
         sortField = defaults.string(forKey: DefaultsKey.sortField).flatMap(BrowserSortField.init(rawValue:)) ?? .urgency
         sortAscending = defaults.object(forKey: DefaultsKey.sortAscending) as? Bool ?? false
@@ -93,6 +96,7 @@ final class TaskBrowserViewModel: ObservableObject {
         self.undoMutation = undoMutation
         self.defaults = defaults
         projectColors = Self.loadProjectColors(from: defaults)
+        userSelectedProjectColors = Self.loadUserSelectedProjectColors(from: defaults)
         view = defaults.string(forKey: DefaultsKey.view).flatMap(BrowserViewKind.init(rawValue:)) ?? .next
         sortField = defaults.string(forKey: DefaultsKey.sortField).flatMap(BrowserSortField.init(rawValue:)) ?? .urgency
         sortAscending = defaults.object(forKey: DefaultsKey.sortAscending) as? Bool ?? false
@@ -123,6 +127,7 @@ final class TaskBrowserViewModel: ObservableObject {
     func setProjectColor(_ color: ProjectColor, for project: String) {
         guard !project.isEmpty else { return }
         projectColors[project] = color
+        userSelectedProjectColors.insert(project)
         persistProjectColors()
     }
 
@@ -426,17 +431,38 @@ final class TaskBrowserViewModel: ObservableObject {
     }
 
     private func ensureProjectColors() {
-        var addedColor = false
-        for project in projects where projectColors[project] == nil {
-            projectColors[project] = .random()
-            addedColor = true
+        let knownProjects = Set(projectColors.keys).union(projects)
+        let selectedProjects = knownProjects
+            .filter { userSelectedProjectColors.contains($0) }
+            .sorted(by: Self.caseInsensitiveAscending)
+        var acceptedColors = selectedProjects.compactMap { projectColors[$0] }
+        var changed = false
+
+        for project in knownProjects
+            .subtracting(selectedProjects)
+            .sorted(by: Self.caseInsensitiveAscending) {
+            if let color = projectColors[project], color.isVisuallyDistinct(from: acceptedColors) {
+                acceptedColors.append(color)
+                continue
+            }
+
+            let color = ProjectColor.mostDistinct(from: acceptedColors)
+            if projectColors[project] != color {
+                projectColors[project] = color
+                changed = true
+            }
+            acceptedColors.append(color)
         }
-        if addedColor { persistProjectColors() }
+        if changed { persistProjectColors() }
     }
 
     private func persistProjectColors() {
         guard let data = try? JSONEncoder().encode(projectColors) else { return }
         defaults.set(data, forKey: DefaultsKey.projectColors)
+        defaults.set(
+            userSelectedProjectColors.sorted(by: Self.caseInsensitiveAscending),
+            forKey: DefaultsKey.userSelectedProjectColors
+        )
     }
 
     private static func loadProjectColors(from defaults: UserDefaults) -> [String: ProjectColor] {
@@ -445,6 +471,10 @@ final class TaskBrowserViewModel: ObservableObject {
             return [:]
         }
         return colors
+    }
+
+    private static func loadUserSelectedProjectColors(from defaults: UserDefaults) -> Set<String> {
+        Set(defaults.stringArray(forKey: DefaultsKey.userSelectedProjectColors) ?? [])
     }
 
     @discardableResult

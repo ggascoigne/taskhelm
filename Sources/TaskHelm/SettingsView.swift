@@ -1,5 +1,5 @@
 import SwiftUI
-import TWMacCore
+import TaskHelmCore
 
 struct SettingsView: View {
     @ObservedObject var settings: AppSettings
@@ -59,7 +59,7 @@ struct SettingsView: View {
                     }
 
                 if settings.capturesSelectedText {
-                    Text("TW Mac must be enabled in System Settings → Privacy & Security → Accessibility.")
+                    Text("TaskHelm must be enabled in System Settings → Privacy & Security → Accessibility.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

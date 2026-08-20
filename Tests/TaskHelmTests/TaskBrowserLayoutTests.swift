@@ -1,13 +1,22 @@
 import AppKit
 import SwiftUI
 import Testing
-import TWMacCore
+import TaskHelmCore
 import UniformTypeIdentifiers
-@testable import TWMac
+@testable import TaskHelm
 
 @MainActor
 @Suite("Task Browser layout")
 struct TaskBrowserLayoutTests {
+    @Test func boardDoesNotOverflowWhenAllMinimumWidthColumnsFit() {
+        let availableWidth: CGFloat = 900
+
+        #expect(
+            BrowserBoardLayout.contentWidth(availableWidth: availableWidth, columnCount: 4)
+                <= availableWidth
+        )
+    }
+
     @Test func configuresExistingBrowserWindowToMoveToTheActiveDesktop() {
         let behavior = TaskBrowserWindowPlacement.activeDesktopBehavior(
             from: [.managed, .canJoinAllSpaces]

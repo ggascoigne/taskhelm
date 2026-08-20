@@ -1,5 +1,5 @@
 import Foundation
-import TWMacCore
+import TaskHelmCore
 
 @MainActor
 final class QuickCaptureViewModel: ObservableObject {

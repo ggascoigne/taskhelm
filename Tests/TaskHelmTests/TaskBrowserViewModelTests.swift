@@ -1,7 +1,7 @@
 import Foundation
 import Testing
-import TWMacCore
-@testable import TWMac
+import TaskHelmCore
+@testable import TaskHelm
 
 @MainActor
 @Suite("Task Browser model")
@@ -23,14 +23,14 @@ struct TaskBrowserViewModelTests {
         let model = TaskBrowserViewModel(client: client, defaults: ephemeralDefaults())
 
         await model.selectView(.completed)
-        await model.toggleProject("TWMac")
+        await model.toggleProject("TaskHelm")
         await model.toggleProject("Personal")
         await model.toggleTag("focus")
         await model.toggleTag("skill")
 
         #expect(client.queries.last == TaskQuery(
             view: .completed,
-            projects: ["Personal", "TWMac"],
+            projects: ["Personal", "TaskHelm"],
             tags: ["focus", "skill"]
         ))
     }
@@ -120,6 +120,38 @@ struct TaskBrowserViewModelTests {
         #expect(restored.projectColor(for: "alpha") == chosen)
         #expect(restored.projectColor(for: "configured") == model.projectColor(for: "configured"))
         #expect(restored.projectColor(for: "new-project") == model.projectColor(for: "new-project"))
+    }
+
+    @Test func repairsLegacyColorCollisionsAndPersistsDistinctAssignments() async throws {
+        let defaults = ephemeralDefaults()
+        let projects = (1...10).map { "project-\($0)" }
+        let red = ProjectColor(red: 0.78, green: 0.20, blue: 0.18)
+        let blue = ProjectColor(red: 0.18, green: 0.32, blue: 0.78)
+        let legacyColors = Dictionary(uniqueKeysWithValues: projects.enumerated().map { index, project in
+            (project, index < 3 ? red : blue)
+        })
+        defaults.set(try JSONEncoder().encode(legacyColors), forKey: "browserProjectColors")
+
+        let model = TaskBrowserViewModel(
+            client: BrowserClient(results: [[]], projects: projects),
+            defaults: defaults
+        )
+        await model.refresh()
+
+        let colors = try projects.map { project in
+            try #require(model.projectColor(for: project))
+        }
+        let minimumDistance = colors.indices.dropLast().flatMap { leftIndex in
+            colors.indices.dropFirst(leftIndex + 1).map { rightIndex in
+                colors[leftIndex].distance(to: colors[rightIndex])
+            }
+        }.min()
+        #expect(try #require(minimumDistance) >= 0.25)
+
+        let restored = TaskBrowserViewModel(client: BrowserClient(results: []), defaults: defaults)
+        for project in projects {
+            #expect(restored.projectColor(for: project) == model.projectColor(for: project))
+        }
     }
 
     @Test func partitionsMatchingTasksIntoBoardColumns() async {

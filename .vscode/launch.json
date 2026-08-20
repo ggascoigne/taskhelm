@@ -4,21 +4,21 @@
       "type": "swift",
       "request": "launch",
       "args": [],
-      "cwd": "${workspaceFolder:tw-mac}",
-      "name": "Debug TWMac",
-      "target": "TWMac",
+      "cwd": "${workspaceFolder}",
+      "name": "Debug TaskHelm",
+      "target": "TaskHelm",
       "configuration": "debug",
-      "preLaunchTask": "swift: Build Debug TWMac"
+      "preLaunchTask": "swift: Build Debug TaskHelm"
     },
     {
       "type": "swift",
       "request": "launch",
       "args": [],
-      "cwd": "${workspaceFolder:tw-mac}",
-      "name": "Release TWMac",
-      "target": "TWMac",
+      "cwd": "${workspaceFolder}",
+      "name": "Release TaskHelm",
+      "target": "TaskHelm",
       "configuration": "release",
-      "preLaunchTask": "swift: Build Release TWMac"
+      "preLaunchTask": "swift: Build Release TaskHelm"
     }
   ]
 }

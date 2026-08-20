@@ -1,5 +1,5 @@
 import SwiftUI
-import TWMacCore
+import TaskHelmCore
 
 struct OnboardingView: View {
     @ObservedObject var settings: AppSettings
@@ -17,7 +17,7 @@ struct OnboardingView: View {
                     .font(.system(size: 42))
                     .foregroundStyle(.tint)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Welcome to TW Mac")
+                    Text("Welcome to TaskHelm")
                         .font(.title.bold())
                     Text("A native interface for your existing Taskwarrior workflow.")
                         .foregroundStyle(.secondary)
@@ -63,7 +63,7 @@ struct OnboardingView: View {
                             if enabled { requestAccessibilityPermission() }
                         }
 
-                    Text("Selected-text capture uses macOS Accessibility access. TW Mac requests permission only when this option is enabled.")
+                    Text("Selected-text capture uses macOS Accessibility access. TaskHelm requests permission only when this option is enabled.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -73,13 +73,13 @@ struct OnboardingView: View {
             GroupBox("Startup") {
                 VStack(alignment: .leading, spacing: 6) {
                     Toggle(
-                        "Launch TW Mac at Login (Recommended)",
+                        "Launch TaskHelm at Login (Recommended)",
                         isOn: Binding(
                             get: { launchAtLogin.isEnabled },
                             set: { launchAtLogin.setEnabled($0) }
                         )
                     )
-                    Text("TW Mac lives in the menu bar, so launching it at login keeps Quick Capture available.")
+                    Text("TaskHelm lives in the menu bar, so launching it at login keeps Quick Capture available.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     if let errorMessage = launchAtLogin.errorMessage {

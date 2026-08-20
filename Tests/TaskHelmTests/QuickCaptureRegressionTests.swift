@@ -1,15 +1,37 @@
 import AppKit
 import SwiftUI
 import Testing
-import TWMacCore
-@testable import TWMac
+import TaskHelmCore
+@testable import TaskHelm
 
 @MainActor
 @Suite("Quick Capture regressions", .serialized)
 struct QuickCaptureRegressionTests {
+    @Test func panelDoesNotReserveAnEmptyNativeTitlebar() {
+        #expect(!QuickCapturePanelController.panelStyleMask.contains(.titled))
+    }
+
+    @Test func borderlessPanelKeepsRoundedCorners() throws {
+        let panel = QuickCapturePanel(
+            contentRect: NSRect(x: 0, y: 0, width: 660, height: 230),
+            styleMask: QuickCapturePanelController.panelStyleMask,
+            backing: .buffered,
+            defer: false
+        )
+        let hostedView = NSView(frame: panel.contentLayoutRect)
+
+        QuickCapturePanelController.applyRoundedAppearance(to: panel, hostedView: hostedView)
+
+        #expect(!panel.isOpaque)
+        #expect(panel.backgroundColor == .clear)
+        #expect(try #require(hostedView.layer).cornerRadius == 12)
+        #expect(hostedView.layer?.cornerCurve == .continuous)
+        #expect(hostedView.layer?.masksToBounds == true)
+    }
+
     @Test func successfulCreationAnnouncesThatBrowserDataChanged() async {
         let client = RecordingTaskwarriorClient()
-        let notification = Notification.Name("TWMacTaskCreated")
+        let notification = Notification.Name("TaskHelmTaskCreated")
         var receivedCount = 0
         let observer = NotificationCenter.default.addObserver(
             forName: notification,
@@ -320,7 +342,7 @@ struct QuickCaptureRegressionTests {
     private func mount(_ model: QuickCaptureViewModel) -> (panel: QuickCapturePanel, host: NSHostingView<QuickCaptureView>) {
         _ = NSApplication.shared
         let host = NSHostingView(rootView: QuickCaptureView(model: model))
-        host.frame = NSRect(x: 0, y: 0, width: 660, height: 190)
+        host.frame = NSRect(x: 0, y: 0, width: 660, height: 230)
         let panel = QuickCapturePanel(
             contentRect: host.frame,
             styleMask: [.titled],

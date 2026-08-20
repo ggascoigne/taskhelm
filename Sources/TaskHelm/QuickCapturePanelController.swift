@@ -3,6 +3,9 @@ import SwiftUI
 
 @MainActor
 final class QuickCapturePanelController: NSObject, NSWindowDelegate {
+    static let panelStyleMask: NSWindow.StyleMask = [.nonactivatingPanel]
+    static let panelCornerRadius: CGFloat = 12
+
     private let makeViewModel: () -> QuickCaptureViewModel
     private let onShowTaskBrowser: () -> Void
     private var panel: QuickCapturePanel?
@@ -29,10 +32,14 @@ final class QuickCapturePanelController: NSObject, NSWindowDelegate {
         model.prepare(description: "")
         let panel = makePanel()
         let hostingController = NSHostingController(
-            rootView: AnyView(QuickCaptureView(model: model).id(UUID()))
+            rootView: AnyView(
+                QuickCaptureView(model: model, onShowTaskBrowser: onShowTaskBrowser)
+                    .id(UUID())
+            )
         )
         panel.contentViewController = hostingController
-        panel.setContentSize(NSSize(width: 660, height: 190))
+        Self.applyRoundedAppearance(to: panel, hostedView: hostingController.view)
+        panel.setContentSize(NSSize(width: 660, height: 230))
         panel.layoutIfNeeded()
         hostingController.view.layoutSubtreeIfNeeded()
         self.panel = panel
@@ -53,10 +60,10 @@ final class QuickCapturePanelController: NSObject, NSWindowDelegate {
         panel.onCancel = { [weak self] in self?.dismiss() }
         panel.onShowTaskBrowser = onShowTaskBrowser
         hostingController.rootView = AnyView(
-            QuickCaptureView(model: model)
+            QuickCaptureView(model: model, onShowTaskBrowser: onShowTaskBrowser)
                 .id(UUID())
         )
-        panel.setContentSize(NSSize(width: 660, height: 190))
+        panel.setContentSize(NSSize(width: 660, height: 230))
         position(panel)
         panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()
@@ -76,8 +83,8 @@ final class QuickCapturePanelController: NSObject, NSWindowDelegate {
 
     private func makePanel() -> QuickCapturePanel {
         let panel = QuickCapturePanel(
-            contentRect: NSRect(x: 0, y: 0, width: 660, height: 190),
-            styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel],
+            contentRect: NSRect(x: 0, y: 0, width: 660, height: 230),
+            styleMask: Self.panelStyleMask,
             backing: .buffered,
             defer: false
         )
@@ -86,14 +93,19 @@ final class QuickCapturePanelController: NSObject, NSWindowDelegate {
         panel.hidesOnDeactivate = false
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
         panel.isMovableByWindowBackground = true
-        panel.standardWindowButton(.closeButton)?.isHidden = true
-        panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
-        panel.standardWindowButton(.zoomButton)?.isHidden = true
         panel.isReleasedWhenClosed = false
         return panel
+    }
+
+    static func applyRoundedAppearance(to panel: NSPanel, hostedView: NSView) {
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        hostedView.wantsLayer = true
+        hostedView.layer?.cornerRadius = panelCornerRadius
+        hostedView.layer?.cornerCurve = .continuous
+        hostedView.layer?.masksToBounds = true
     }
 
     private func focusDescription(
