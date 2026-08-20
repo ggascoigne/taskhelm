@@ -11,6 +11,18 @@ struct QuickCaptureRegressionTests {
         #expect(!QuickCapturePanelController.panelStyleMask.contains(.titled))
     }
 
+    @Test func borderlessQuickCapturePanelCanReceiveKeyboardInput() {
+        let panel = QuickCapturePanel(
+            contentRect: NSRect(x: 0, y: 0, width: 660, height: 230),
+            styleMask: QuickCapturePanelController.panelStyleMask,
+            backing: .buffered,
+            defer: false
+        )
+        defer { panel.close() }
+
+        #expect(panel.canBecomeKey)
+    }
+
     @Test func borderlessPanelKeepsRoundedCorners() throws {
         let panel = QuickCapturePanel(
             contentRect: NSRect(x: 0, y: 0, width: 660, height: 230),

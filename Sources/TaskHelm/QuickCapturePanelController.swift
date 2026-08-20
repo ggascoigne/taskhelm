@@ -154,6 +154,8 @@ final class QuickCapturePanel: NSPanel {
     var onCancel: (() -> Void)?
     var onShowTaskBrowser: (() -> Void)?
 
+    override var canBecomeKey: Bool { true }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let shortcutModifiers: NSEvent.ModifierFlags = [.command, .control, .option, .shift]
         if event.modifierFlags.intersection(shortcutModifiers) == .command,
