@@ -188,6 +188,28 @@ struct TaskwarriorClientTests {
         ])
     }
 
+    @Test func annotatesANewTaskWhenItsQuickCaptureDraftIncludesANote() async throws {
+        let uuid = UUID()
+        let runner = RecordingRunner(results: [
+            ProcessResult(exitCode: 0, standardOutput: "Created task \(uuid.uuidString).\n", standardError: ""),
+            ProcessResult(exitCode: 0, standardOutput: "Annotated 1 task.\n", standardError: ""),
+        ])
+        let client = TaskwarriorClient(
+            environment: TaskwarriorEnvironment(executableURL: URL(fileURLWithPath: "/opt/homebrew/bin/task")),
+            runner: runner
+        )
+
+        _ = try await client.createTask(from: QuickCaptureDraft(description: "Write release notes", note: "Include migration guidance."))
+
+        #expect(runner.invocations[1].arguments == [
+            "rc.confirmation=off",
+            uuid.uuidString.lowercased(),
+            "annotate",
+            "--",
+            "Include migration guidance.",
+        ])
+    }
+
     @Test func rejectsOldTaskwarriorVersions() async {
         let runner = RecordingRunner(results: [
             ProcessResult(exitCode: 0, standardOutput: "3.3.0\n", standardError: "")

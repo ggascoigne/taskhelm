@@ -6,19 +6,22 @@ public struct QuickCaptureDraft: Equatable, Sendable {
     public var tags: [String]
     public var due: String
     public var priority: String
+    public var note: String
 
     public init(
         description: String = "",
         project: String = "",
         tags: [String] = [],
         due: String = "",
-        priority: String = ""
+        priority: String = "",
+        note: String = ""
     ) {
         self.description = description
         self.project = project
         self.tags = tags
         self.due = due
         self.priority = priority
+        self.note = note
     }
 
     public var isValid: Bool {

@@ -41,6 +41,21 @@ struct QuickCaptureRegressionTests {
         #expect(hostedView.layer?.masksToBounds == true)
     }
 
+    @Test func resizingQuickCapturePreservesItsTopEdge() {
+        let panel = QuickCapturePanel(
+            contentRect: NSRect(x: 100, y: 240, width: 660, height: 230),
+            styleMask: QuickCapturePanelController.panelStyleMask,
+            backing: .buffered,
+            defer: false
+        )
+        defer { panel.close() }
+        let originalTop = panel.frame.maxY
+
+        QuickCapturePanelController.resize(panel, to: QuickCapturePanelController.expandedContentSize)
+
+        #expect(panel.frame.maxY == originalTop)
+    }
+
     @Test func successfulCreationAnnouncesThatBrowserDataChanged() async {
         let client = RecordingTaskwarriorClient()
         let notification = Notification.Name("TaskHelmTaskCreated")
@@ -60,6 +75,17 @@ struct QuickCaptureRegressionTests {
         await model.submit()
 
         #expect(receivedCount == 1)
+    }
+
+    @Test func aNewQuickCaptureDraftIncludesItsNoteWhenSubmitted() async {
+        let client = RecordingTaskwarriorClient()
+        let model = QuickCaptureViewModel(client: client, onCancel: {}, onCreated: {})
+        model.prepare(description: "Document note support")
+        model.draft.note = "This should be an annotation."
+
+        await model.submit()
+
+        #expect(client.createdDrafts.first?.note == "This should be an annotation.")
     }
 
     @Test func commandBRequestsTaskBrowser() throws {
@@ -123,6 +149,21 @@ struct QuickCaptureRegressionTests {
         await waitUntil { client.createdDrafts.count == 1 }
 
         #expect(client.createdDrafts.count == 1)
+    }
+
+    @Test func returnDoesNotSubmitWhileTheNoteEditorIsExpanded() async {
+        let client = RecordingTaskwarriorClient()
+        let model = QuickCaptureViewModel(client: client, onCancel: {}, onCreated: {})
+        model.prepare(description: "Keep editing the note")
+        let mounted = mount(model)
+        defer { mounted.panel.close() }
+        mounted.panel.onSubmit = { Task { await model.submit() } }
+        mounted.panel.isNoteEditorExpanded = true
+
+        sendReturn(to: mounted.panel)
+        await waitForMainActorWork()
+
+        #expect(client.createdDrafts.isEmpty)
     }
 
     @Test func projectEntryIsPreservedWhenReturnSubmits() async throws {

@@ -598,17 +598,32 @@ struct BoardTaskCard: View {
                     Spacer(minLength: 0)
                 }
 
-                if !task.project.isEmpty {
-                    Label(task.project, systemImage: "folder")
-                        .lineLimit(1)
+                if !task.annotations.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(task.annotations) { annotation in
+                            HStack(alignment: .top, spacing: 4) {
+                                Image(systemName: "text.quote")
+                                    .font(.caption2)
+                                    .padding(.top, 2)
+                                Text(annotation.description)
+                                    .lineLimit(3)
+                            }
+                        }
+                    }
+                    .foregroundStyle(.secondary)
                 }
 
-                if !task.tags.isEmpty {
-                    Label(task.tagsText, systemImage: "tag")
-                        .lineLimit(2)
-                }
+                Spacer(minLength: 2)
 
-                HStack(spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    if !task.project.isEmpty {
+                        Label(task.project, systemImage: "folder")
+                            .lineLimit(1)
+                    }
+                    if !task.tags.isEmpty {
+                        Label(task.tagsText, systemImage: "tag")
+                            .lineLimit(1)
+                    }
                     if !task.due.isEmpty {
                         Label(browserDueDisplayValue(task.due), systemImage: "calendar")
                     }

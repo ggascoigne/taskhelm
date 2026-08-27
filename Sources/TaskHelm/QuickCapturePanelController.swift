@@ -5,6 +5,8 @@ import SwiftUI
 final class QuickCapturePanelController: NSObject, NSWindowDelegate {
     static let panelStyleMask: NSWindow.StyleMask = [.nonactivatingPanel]
     static let panelCornerRadius: CGFloat = 12
+    static let collapsedContentSize = NSSize(width: 660, height: 230)
+    static let expandedContentSize = NSSize(width: 660, height: 390)
 
     private let makeViewModel: () -> QuickCaptureViewModel
     private let onShowTaskBrowser: () -> Void
@@ -39,7 +41,7 @@ final class QuickCapturePanelController: NSObject, NSWindowDelegate {
         )
         panel.contentViewController = hostingController
         Self.applyRoundedAppearance(to: panel, hostedView: hostingController.view)
-        panel.setContentSize(NSSize(width: 660, height: 230))
+        panel.setContentSize(Self.collapsedContentSize)
         panel.layoutIfNeeded()
         hostingController.view.layoutSubtreeIfNeeded()
         self.panel = panel
@@ -60,10 +62,19 @@ final class QuickCapturePanelController: NSObject, NSWindowDelegate {
         panel.onCancel = { [weak self] in self?.dismiss() }
         panel.onShowTaskBrowser = onShowTaskBrowser
         hostingController.rootView = AnyView(
-            QuickCaptureView(model: model, onShowTaskBrowser: onShowTaskBrowser)
-                .id(UUID())
+            QuickCaptureView(
+                model: model,
+                onShowTaskBrowser: onShowTaskBrowser,
+                onNoteEditorExpansionChanged: { [weak panel] isExpanded in
+                    guard let panel else { return }
+                    panel.isNoteEditorExpanded = isExpanded
+                    Self.resize(panel, to: isExpanded ? Self.expandedContentSize : Self.collapsedContentSize)
+                }
+            )
+            .id(UUID())
         )
-        panel.setContentSize(NSSize(width: 660, height: 230))
+        panel.isNoteEditorExpanded = false
+        panel.setContentSize(Self.collapsedContentSize)
         position(panel)
         panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()
@@ -106,6 +117,12 @@ final class QuickCapturePanelController: NSObject, NSWindowDelegate {
         hostedView.layer?.cornerRadius = panelCornerRadius
         hostedView.layer?.cornerCurve = .continuous
         hostedView.layer?.masksToBounds = true
+    }
+
+    static func resize(_ panel: NSPanel, to contentSize: NSSize) {
+        let topEdge = panel.frame.maxY
+        panel.setContentSize(contentSize)
+        panel.setFrameOrigin(NSPoint(x: panel.frame.minX, y: topEdge - panel.frame.height))
     }
 
     private func focusDescription(
@@ -153,6 +170,7 @@ final class QuickCapturePanel: NSPanel {
     var onSubmit: (() -> Void)?
     var onCancel: (() -> Void)?
     var onShowTaskBrowser: (() -> Void)?
+    var isNoteEditorExpanded = false
 
     override var canBecomeKey: Bool { true }
 
@@ -175,6 +193,10 @@ final class QuickCapturePanel: NSPanel {
         let disallowedModifiers: NSEvent.ModifierFlags = [.command, .control, .option]
         if event.modifierFlags.intersection(disallowedModifiers).isEmpty,
            event.keyCode == 36 || event.keyCode == 76 {
+            if isNoteEditorExpanded {
+                super.sendEvent(event)
+                return
+            }
             if isEditingComboBox {
                 super.sendEvent(event)
                 DispatchQueue.main.async { [weak self] in self?.onSubmit?() }

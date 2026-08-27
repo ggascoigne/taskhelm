@@ -71,7 +71,18 @@ public struct TaskwarriorClient<Runner: ProcessRunning>: Sendable {
             throw TaskwarriorError.invalidCreationOutput(result.standardOutput)
         }
 
-        return CreatedTask(uuid: uuid, feedback: result.standardError.trimmingCharacters(in: .whitespacesAndNewlines))
+        let note = draft.note.trimmingCharacters(in: .whitespacesAndNewlines)
+        var feedback = result.standardError.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !note.isEmpty {
+            let annotation = try await run(arguments: [
+                "rc.confirmation=off", uuid.uuidString.lowercased(), "annotate", "--", note,
+            ])
+            try requireSuccess(annotation)
+            let annotationFeedback = annotation.standardError.trimmingCharacters(in: .whitespacesAndNewlines)
+            feedback = [feedback, annotationFeedback].filter { !$0.isEmpty }.joined(separator: "\n")
+        }
+
+        return CreatedTask(uuid: uuid, feedback: feedback)
     }
 
     public func metadata() async throws -> TaskwarriorMetadata {
